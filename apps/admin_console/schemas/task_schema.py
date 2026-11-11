@@ -33,6 +33,7 @@ class RunRequest(BaseModel):
     session_id: str | None = None
     conversation_id: str | None = None
     unlock_passphrase: str | None = None
+    attachments: list[dict] | None = None
 
 
 class ReplayRequest(BaseModel):

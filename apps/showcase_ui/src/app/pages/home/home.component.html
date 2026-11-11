@@ -1725,7 +1725,14 @@
         }
 
         <!-- Task composer -->
-        <div class="composer-card" [class.is-pro-active]="selectedProfile() === 'pro'">
+        <div
+          class="composer-card"
+          [class.is-pro-active]="selectedProfile() === 'pro'"
+          [class.is-drag-over]="isDragging()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave($event)"
+          (drop)="onFileDrop($event)"
+        >
           
           <!-- Smart Intent Recommendation Strip (if detected) -->
           @if (showIntentSuggestion()) {
@@ -1740,6 +1747,26 @@
                 <span>Switch to Pro</span>
                 <span class="material-symbols-outlined btn-arrow">arrow_forward</span>
               </button>
+            </div>
+          }
+
+          <!-- Attached Files Tray (Multi-file support) -->
+          @if (attachedFiles().length > 0) {
+            <div class="composer-attachments-tray">
+              @for (file of attachedFiles(); track file.filename) {
+                <div class="attachment-chip" [class.is-uploading]="file.uploading">
+                  <span class="material-symbols-outlined file-chip-icon">{{ getFileIcon(file.filename) }}</span>
+                  <span class="file-chip-name" [title]="file.filename">{{ file.filename }}</span>
+                  <span class="file-chip-size">{{ file.size_formatted }}</span>
+                  @if (file.uploading) {
+                    <span class="spinner-tiny"></span>
+                  } @else {
+                    <button type="button" class="btn-chip-remove" (click)="removeAttachment(file)" title="Remove file">
+                      <span class="material-symbols-outlined">close</span>
+                    </button>
+                  }
+                </div>
+              }
             </div>
           }
 
@@ -1858,6 +1885,30 @@
                 <span class="material-symbols-outlined">{{ isPassphraseArmed() ? 'lock' : 'lock_open' }}</span>
               </button>
 
+              <!-- Hidden Multi-File Input -->
+              <input
+                #homeFileInput
+                type="file"
+                multiple
+                (change)="onFilesSelected($event)"
+                style="display: none;"
+              />
+
+              <!-- Attach Files Button -->
+              <button
+                type="button"
+                class="btn-attach-files"
+                [class.has-files]="attachedFiles().length > 0"
+                (click)="homeFileInput.click()"
+                title="Attach files (Contacts, CSV, Text, Documents, Images)"
+                aria-label="Attach files"
+              >
+                <span class="material-symbols-outlined attach-icon">attach_file</span>
+                @if (attachedFiles().length > 0) {
+                  <span class="attach-badge">{{ attachedFiles().length }}</span>
+                }
+              </button>
+
               @if (taskGoal().length > 0) {
                 <span class="char-count">{{ taskGoal().length }} chars</span>
               }
@@ -1882,7 +1933,7 @@
                 type="button"
                 class="btn-run-composer"
                 [class.btn-run-pro]="selectedProfile() === 'pro'"
-                [disabled]="(!taskGoal().trim() && !isPassphraseArmed()) || isSubmitting() || !isReady()"
+                [disabled]="(!taskGoal().trim() && !isPassphraseArmed() && attachedFiles().length === 0) || isSubmitting() || !isReady()"
                 [title]="!isReady() ? 'Complete System Setup before running' : 'Run task'"
                 (click)="runTask()"
               >

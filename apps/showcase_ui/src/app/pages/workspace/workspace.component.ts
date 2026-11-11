@@ -67,6 +67,85 @@ export class WorkspaceComponent implements OnInit {
   public isPassphraseMasked = signal<boolean>(true);
   public isPassphraseFocused = signal<boolean>(false);
 
+  // File Attachment State
+  public attachedFiles = signal<any[]>([]);
+  public isFileDragOver = signal<boolean>(false);
+
+  public getFileIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'vcf') return 'contacts';
+    if (['csv', 'tsv', 'xls', 'xlsx'].includes(ext)) return 'table_chart';
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image';
+    if (['json', 'xml', 'yaml', 'yml'].includes(ext)) return 'code';
+    if (['txt', 'md', 'doc', 'docx', 'pdf'].includes(ext)) return 'description';
+    return 'attach_file';
+  }
+
+  public onFilesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    this.uploadFileList(Array.from(input.files));
+    input.value = '';
+  }
+
+  public onFileDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isFileDragOver.set(true);
+  }
+
+  public onFileDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isFileDragOver.set(false);
+  }
+
+  public onFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isFileDragOver.set(false);
+    if (!event.dataTransfer?.files || event.dataTransfer.files.length === 0) return;
+    this.uploadFileList(Array.from(event.dataTransfer.files));
+  }
+
+  private uploadFileList(files: File[]): void {
+    if (files.length === 0) return;
+    const newItems = files.map(f => ({
+      filename: f.name,
+      size_formatted: `${(f.size / 1024).toFixed(1)} KB`,
+      uploading: true,
+      error: null,
+    }));
+    this.attachedFiles.update(cur => [...cur, ...newItems]);
+
+    const formData = new FormData();
+    for (const f of files) {
+      formData.append('files', f, f.name);
+    }
+
+    this.agentService.uploadFiles(formData).subscribe({
+      next: (res) => {
+        if (res && res.files) {
+          this.attachedFiles.update(cur => {
+            const nonUploading = cur.filter(c => !c.uploading);
+            return [...nonUploading, ...res.files];
+          });
+        }
+      },
+      error: (err) => {
+        this.errorMessage.set('Failed to upload attached files.');
+        this.attachedFiles.update(cur => cur.filter(c => !c.uploading));
+      }
+    });
+  }
+
+  public removeAttachment(indexOrFile: any, event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    this.attachedFiles.update(cur => cur.filter(f => f !== indexOrFile && f.filename !== indexOrFile.filename));
+  }
+
   public isPassphraseValid(text: string): boolean {
     return !!text && text.trim().length > 0;
   }
@@ -328,9 +407,12 @@ export class WorkspaceComponent implements OnInit {
    */
   public submitTask(): void {
     const hasValidPass = this.isPassphraseValid(this.unlockPassphrase());
+    const hasFiles = this.attachedFiles().length > 0;
     let goal = this.taskInput.trim();
     if (!goal && hasValidPass) {
       goal = 'confirm device is unlocked on home screen';
+    } else if (!goal && hasFiles) {
+      goal = 'process and handle the attached files as specified';
     }
     if (!goal || this.isSubmitting()) {
       return;
@@ -350,11 +432,13 @@ export class WorkspaceComponent implements OnInit {
       undefined,
       undefined,
       undefined,
-      this.unlockPassphrase().trim() || undefined
+      this.unlockPassphrase().trim() || undefined,
+      this.attachedFiles().length > 0 ? this.attachedFiles() : undefined
     ).subscribe({
       next: (res) => {
         this.taskInput = '';
         this.unlockPassphrase.set('');
+        this.attachedFiles.set([]);
         if (this.dockInputRef?.nativeElement) {
           this.dockInputRef.nativeElement.style.height = 'auto';
         }

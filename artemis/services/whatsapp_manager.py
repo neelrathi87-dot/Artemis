@@ -40,6 +40,7 @@ class WhatsAppLockedChatManager:
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         self._password: str = os.environ.get("WHATSAPP_LOCKED_CHAT_PASSWORD", "")
         self._locked_contacts: set[str] = set()
+        self._last_mtime: float = 0.0
         self._load()
 
     def _load(self) -> None:
@@ -50,6 +51,8 @@ class WhatsAppLockedChatManager:
 
         if self.config_path.exists():
             try:
+                mtime = self.config_path.stat().st_mtime
+                self._last_mtime = mtime
                 data = json.loads(self.config_path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
                     if "password" in data and not env_pwd:
@@ -64,6 +67,16 @@ class WhatsAppLockedChatManager:
                 logger.warning(f"Failed to load WhatsApp locked chats config: {e}")
         else:
             self._save()
+
+    def _check_reload(self) -> None:
+        """Reload configuration if the file has changed on disk."""
+        if self.config_path.exists():
+            try:
+                mtime = self.config_path.stat().st_mtime
+                if mtime > self._last_mtime:
+                    self._load()
+            except Exception:
+                pass
 
     def _save(self) -> None:
         """Persist settings to disk."""
@@ -82,6 +95,7 @@ class WhatsAppLockedChatManager:
 
     @property
     def password(self) -> str:
+        self._check_reload()
         return self._password
 
     @password.setter
@@ -91,17 +105,20 @@ class WhatsAppLockedChatManager:
             self._save()
 
     def get_locked_contacts(self) -> list[str]:
+        self._check_reload()
         return sorted(list(self._locked_contacts))
 
     def is_locked_contact(self, name: str) -> bool:
         if not name:
             return False
+        self._check_reload()
         clean = name.strip().lower()
         return clean in self._locked_contacts
 
     def add_locked_contact(self, name: str) -> bool:
         if not name:
             return False
+        self._check_reload()
         clean = name.strip().lower()
         if clean not in self._locked_contacts:
             self._locked_contacts.add(clean)
@@ -113,6 +130,7 @@ class WhatsAppLockedChatManager:
     def remove_locked_contact(self, name: str) -> bool:
         if not name:
             return False
+        self._check_reload()
         clean = name.strip().lower()
         if clean in self._locked_contacts:
             self._locked_contacts.remove(clean)
@@ -126,6 +144,7 @@ class WhatsAppLockedChatManager:
         if not raw_goal or not raw_goal.strip():
             return raw_goal
 
+        self._check_reload()
         goal = raw_goal.strip()
         pwd = self._password
 

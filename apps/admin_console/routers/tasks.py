@@ -16,11 +16,12 @@ import asyncio
 from contextlib import suppress
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from artemis.config import settings
+from artemis.config import WORKSPACE_ROOT, settings
 from artemis.core.diagnostics import readiness_engine
 from artemis.runtime import DeviceExecutionLock, device_pool
 
@@ -114,6 +115,66 @@ async def update_whatsapp_locked_chats(request: Request):
         "password": whatsapp_locked_chat_manager.password,
         "contacts": whatsapp_locked_chat_manager.get_locked_contacts(),
     }
+
+
+UPLOADS_DIR = Path(WORKSPACE_ROOT) / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@router.post("/api/upload")
+async def upload_task_files(files: list[UploadFile] = File(...)):
+    """Upload one or more files for task execution, parse text content, and store locally."""
+    saved_files = []
+    for f in files:
+        if not f.filename:
+            continue
+        safe_name = re.sub(r"[^\w\-.]", "_", Path(f.filename).name)
+        file_path = UPLOADS_DIR / safe_name
+        content_bytes = await f.read()
+        file_path.write_bytes(content_bytes)
+
+        is_text = False
+        text_content = ""
+        ext = file_path.suffix.lower()
+
+        # Text-readable extensions (contacts, CSV, documents, code, logs)
+        if ext in {
+            ".txt", ".csv", ".tsv", ".vcf", ".json", ".xml", ".md",
+            ".html", ".log", ".py", ".js", ".css", ".yaml", ".yml",
+            ".ini", ".conf", ".sql", ".sh", ".bat"
+        }:
+            try:
+                text_content = content_bytes.decode("utf-8", errors="replace")
+                is_text = True
+            except Exception:
+                pass
+        elif len(content_bytes) < 1024 * 1024:  # under 1MB fallback
+            try:
+                text_content = content_bytes.decode("utf-8")
+                is_text = True
+            except Exception:
+                pass
+
+        size_bytes = len(content_bytes)
+        if size_bytes < 1024:
+            size_fmt = f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            size_fmt = f"{size_bytes / 1024:.1f} KB"
+        else:
+            size_fmt = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+        saved_files.append({
+            "filename": safe_name,
+            "saved_path": str(file_path),
+            "size": size_bytes,
+            "size_formatted": size_fmt,
+            "is_text": is_text,
+            "content": text_content,
+            "preview": text_content[:500] if is_text else "",
+            "mime_type": f.content_type or "application/octet-stream",
+        })
+
+    return {"files": saved_files, "count": len(saved_files)}
 
 
 @router.post("/api/run")
@@ -290,6 +351,56 @@ async def run_task(request: RunRequest):
         # invalid, enqueue_tasks rejects the submission with a clear error.
         if verified_serial and not request.device_serial:
             target_serial = verified_serial
+
+    # Process and append any attached user files/data to the goals
+    if request.attachments:
+        attachment_blocks = []
+        for att in request.attachments:
+            if not isinstance(att, dict):
+                continue
+            fname = att.get("filename") or "attached_file"
+            saved_path = att.get("saved_path")
+            content = att.get("content") or ""
+            is_text = att.get("is_text", False)
+
+            pushed_to_phone = False
+            phone_dest = f"/sdcard/Download/{fname}"
+            effective_serial = target_serial or active_serial
+            if effective_serial and saved_path and Path(saved_path).exists():
+                try:
+                    from artemis.runtime.awake_service import _run_awake_adb_command
+                    push_res = _run_awake_adb_command(
+                        effective_serial,
+                        ["push", saved_path, phone_dest],
+                        f"push attached file {fname} to device",
+                    )
+                    if push_res and push_res.returncode == 0:
+                        pushed_to_phone = True
+                except Exception:
+                    pass
+
+            block = f"📁 [Attached File: '{fname}']\n"
+            if pushed_to_phone:
+                block += f"- Available on phone at: {phone_dest}\n"
+            if saved_path:
+                block += f"- Host Path: {saved_path}\n"
+            if is_text and content:
+                block += f"- File Content:\n```\n{content.strip()}\n```\n"
+            elif content:
+                block += f"- Content:\n```\n{content.strip()}\n```\n"
+
+            attachment_blocks.append(block)
+
+        if attachment_blocks:
+            attached_context = (
+                "\n\n"
+                + "=" * 50
+                + "\nATTACHED USER FILES & DATA:\n"
+                + "\n".join(attachment_blocks)
+                + "=" * 50
+                + "\n"
+            )
+            incoming_goals = [g + attached_context for g in incoming_goals]
 
     return await task_queue_service.enqueue_tasks(
         incoming_goals,

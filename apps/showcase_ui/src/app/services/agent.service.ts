@@ -439,7 +439,8 @@ export class AgentService {
     expectedOutput?: string,
     enableOutputter?: boolean,
     proTuning?: ProTuningOptions,
-    unlockPassphrase?: string
+    unlockPassphrase?: string,
+    attachments?: any[]
   ): Observable<any> {
     return new Observable((obs) => {
       const submittedEvent: StartupProgressEvent = {
@@ -451,6 +452,9 @@ export class AgentService {
       const payload: any = { goal, profile };
       if (unlockPassphrase && unlockPassphrase.trim()) {
         payload.unlock_passphrase = unlockPassphrase.trim();
+      }
+      if (attachments && attachments.length > 0) {
+        payload.attachments = attachments;
       }
       if (expectedOutput && expectedOutput.trim()) {
         payload.expected_output = expectedOutput.trim();
@@ -498,6 +502,13 @@ export class AgentService {
         }
       });
     });
+  }
+
+  /**
+   * Upload one or more files for task execution.
+   */
+  public uploadFiles(formData: FormData): Observable<{ files: any[]; count: number }> {
+    return this.http.post<{ files: any[]; count: number }>('/api/upload', formData);
   }
 
   /**

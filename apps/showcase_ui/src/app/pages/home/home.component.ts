@@ -205,6 +205,82 @@ export class HomeComponent implements OnInit, OnDestroy {
   public showPassphraseField = signal<boolean>(false);
   public isPassphraseMasked = signal<boolean>(true);
 
+  // File Attachment State
+  public attachedFiles = signal<any[]>([]);
+  public isDragging = signal<boolean>(false);
+
+  public getFileIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'vcf') return 'contacts';
+    if (['csv', 'tsv', 'xls', 'xlsx'].includes(ext)) return 'table_chart';
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image';
+    if (['json', 'xml', 'yaml', 'yml'].includes(ext)) return 'code';
+    if (['txt', 'md', 'doc', 'docx', 'pdf'].includes(ext)) return 'description';
+    return 'attach_file';
+  }
+
+  public onFilesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    this.uploadFileList(Array.from(input.files));
+    input.value = '';
+  }
+
+  public onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(true);
+  }
+
+  public onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(false);
+  }
+
+  public onFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(false);
+    if (!event.dataTransfer?.files || event.dataTransfer.files.length === 0) return;
+    this.uploadFileList(Array.from(event.dataTransfer.files));
+  }
+
+  private uploadFileList(files: File[]): void {
+    if (files.length === 0) return;
+    const newItems = files.map(f => ({
+      filename: f.name,
+      size_formatted: `${(f.size / 1024).toFixed(1)} KB`,
+      uploading: true,
+      error: null,
+    }));
+    this.attachedFiles.update(cur => [...cur, ...newItems]);
+
+    const formData = new FormData();
+    for (const f of files) {
+      formData.append('files', f, f.name);
+    }
+
+    this.agentService.uploadFiles(formData).subscribe({
+      next: (res) => {
+        if (res && res.files) {
+          this.attachedFiles.update(cur => {
+            const nonUploading = cur.filter(c => !c.uploading);
+            return [...nonUploading, ...res.files];
+          });
+        }
+      },
+      error: (err) => {
+        this.errorMessage.set('Failed to upload attached files. ' + (err?.error?.detail || err.message));
+        this.attachedFiles.update(cur => cur.filter(c => !c.uploading));
+      }
+    });
+  }
+
+  public removeAttachment(indexOrFile: any): void {
+    this.attachedFiles.update(cur => cur.filter(f => f !== indexOrFile && f.filename !== indexOrFile.filename));
+  }
+
   public isPassphraseValid(text: string): boolean {
     return !!text && text.trim().length > 0;
   }
@@ -1150,9 +1226,10 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   public runTask(): void {
     const hasValidPass = this.isPassphraseValid(this.unlockPassphrase());
-    const goal = this.taskGoal().trim() || (hasValidPass ? 'confirm device is unlocked on home screen' : '');
+    const hasFiles = this.attachedFiles().length > 0;
+    const goal = this.taskGoal().trim() || (hasValidPass ? 'confirm device is unlocked on home screen' : (hasFiles ? 'process and handle the attached files as specified' : ''));
     if (!goal) {
-      this.errorMessage.set('Please enter a task goal before running.');
+      this.errorMessage.set('Please enter a task goal or attach files before running.');
       return;
     }
 
@@ -1176,12 +1253,14 @@ export class HomeComponent implements OnInit, OnDestroy {
         this.selectedProfile() === 'pro'
           ? { verificationLevel: this.verificationLevel().id, explorerMode: this.explorerMode().id }
           : undefined,
-        this.unlockPassphrase().trim() || undefined
+        this.unlockPassphrase().trim() || undefined,
+        this.attachedFiles().length > 0 ? this.attachedFiles() : undefined
       )
       .subscribe({
         next: () => {
           this.isSubmitting.set(false);
           this.unlockPassphrase.set('');
+          this.attachedFiles.set([]);
           this.router.navigate(['/workspace']);
         },
         error: (err) => {
