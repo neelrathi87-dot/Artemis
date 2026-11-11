@@ -1,0 +1,53 @@
+{
+  "enabled": true,
+  "business_name": "My Business",
+  "brand_tone": "Warm, professional, polite, helpful, and concise (no robotic essay paragraphs)",
+  "supported_languages": [
+    "English",
+    "Hindi",
+    "Hinglish"
+  ],
+  "language_behavior": "auto_mirror",
+  "knowledge_base": {
+    "about": "We provide quality products and reliable customer support.",
+    "operating_hours": "Monday - Saturday: 10:00 AM - 8:00 PM IST (Closed on Sundays)",
+    "location": "Main Market Road, City, State - PIN",
+    "contact_email": "support@example.com",
+    "phone_number": "+91 98765 43210",
+    "products_and_pricing": [
+      {
+        "name": "Standard Package",
+        "price": "₹499",
+        "description": "Essential features with 30-day validity"
+      },
+      {
+        "name": "Premium Package",
+        "price": "₹999",
+        "description": "Full access with dedicated support"
+      }
+    ],
+    "delivery_and_shipping": "Standard delivery takes 3-5 business days across India. Free delivery on orders above ₹500.",
+    "payment_methods": "UPI (GPay / PhonePe / Paytm), Net Banking, and Cash on Delivery (COD).",
+    "refund_and_cancellation_policy": "Full refund within 7 days of purchase for eligible undamaged items."
+  },
+  "escalation_policy": {
+    "severity_levels": {
+      "low_autonomous": [
+        "operating_hours_inquiry",
+        "store_location_and_address",
+        "standard_catalog_and_price_inquiry",
+        "delivery_time_and_status",
+        "accepted_payment_modes"
+      ],
+      "high_escalate_to_owner": [
+        "discounts_or_custom_bargaining",
+        "refund_requests_or_payment_disputes",
+        "customer_complaints_or_angry_feedback",
+        "bulk_or_b2b_wholesale_pricing",
+        "unlisted_products_or_unclear_questions"
+      ]
+    },
+    "holding_message_for_customer": "Thank you for reaching out! Let me quickly check this with the owner and get back to you shortly.",
+    "auto_notify_owner": true
+  }
+}

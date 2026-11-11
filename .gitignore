@@ -109,6 +109,7 @@ live_screenshot*.png
 *.key
 config/whatsapp_locked_chats.json
 config/learned_skills.json
+config/business_config.json
 uploads/
 
 # OS Artifacts

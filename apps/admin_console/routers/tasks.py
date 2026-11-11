@@ -42,6 +42,7 @@ except ImportError:
     from apps.admin_console.services.task_preset_catalog import task_recommendation_engine
     from apps.admin_console.services.task_queue_service import task_queue_service
 
+from artemis.services.business_manager import business_assistant_manager
 from artemis.services.whatsapp_manager import whatsapp_locked_chat_manager
 
 
@@ -117,6 +118,21 @@ async def update_whatsapp_locked_chats(request: Request):
     }
 
 
+@router.get("/api/business/config")
+async def get_business_config():
+    """Retrieve current business profile, brand tone, FAQs, and escalation policy."""
+    return business_assistant_manager.get_config()
+
+
+@router.post("/api/business/config")
+async def update_business_config(request: Request):
+    """Update and persist business profile, brand tone, FAQs, and escalation policy."""
+    body = await request.json()
+    if isinstance(body, dict):
+        return business_assistant_manager.update_config(body)
+    raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+
 UPLOADS_DIR = Path(WORKSPACE_ROOT) / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -181,9 +197,15 @@ async def upload_task_files(files: list[UploadFile] = File(...)):
 async def run_task(request: RunRequest):
     incoming_goals = []
     if request.goals:
-        incoming_goals = [whatsapp_locked_chat_manager.enrich_goal(g) for g in request.goals if g]
+        incoming_goals = [
+            business_assistant_manager.enrich_task_goal(whatsapp_locked_chat_manager.enrich_goal(g))
+            for g in request.goals
+            if g
+        ]
     elif request.goal:
-        incoming_goals = [whatsapp_locked_chat_manager.enrich_goal(request.goal)]
+        incoming_goals = [
+            business_assistant_manager.enrich_task_goal(whatsapp_locked_chat_manager.enrich_goal(request.goal))
+        ]
 
     if not incoming_goals:
         raise HTTPException(
