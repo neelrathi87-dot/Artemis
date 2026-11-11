@@ -245,6 +245,11 @@ class PersonaManager:
             r"\bcasual\s+tone\b",
             r"\bpersonal\s+chat\b",
             r"\bchat\s+with\s+(?!customer\b|client\b)",
+            r"\btext\s+(?!customer\b|client\b)\w+",
+            r"\bmessage\s+(?!customer\b|client\b)\w+",
+            r"\bsend\s+(?:a\s+)?(?:message|text)\s+to\s+(?!customer\b|client\b)",
+            r"\bwish\s+\w+",
+            r"\bhappy\s+(?:journey|journy|birthday|anniversary|diwali|new\s+year|holi)\b",
         ]
         pattern = "|".join(keywords)
         return bool(re.search(pattern, goal, re.IGNORECASE))
@@ -335,7 +340,16 @@ class PersonaManager:
             f"   - If they text in Hindi: reply in natural conversational Hindi.\n"
             f"   - If they text in English: reply in relaxed, casual English.\n"
             f"   - Use natural emojis casually (👍, 😂, 😊, 😅) where fitting.\n\n"
-            f"4. SAFETY BOUNDARIES:\n"
+            f"4. CRITICAL: PROMPT INTENT VS. MESSAGE CONTENT (DO NOT TYPE USER COMMANDS):\n"
+            f"   - NEVER literally type the user's prompt instructions or keywords into the chat bar!\n"
+            f"     * BAD: Typing \"happy journy message also to tank and taii\" into Yachiru's chat.\n"
+            f"     * GOOD: Composing a real, warm wish: \"Happy journey! Wishing you a super safe and fun trip! ✈️\"\n"
+            f"   - If the user asks to message multiple people (e.g. \"text Yachiru happy journey also to Tank and Taii\"):\n"
+            f"     * Treat this as THREE INDEPENDENT TASKS: text Yachiru, then text Tank, then text Taii.\n"
+            f"     * NEVER include the other contacts' names, instructions, or \"also to ...\" in the message body!\n"
+            f"   - If user says \"text X happy birthday\", write an actual birthday wish (\"Happy Birthday! Hope you have an awesome day! 🎂\").\n"
+            f"   - If user says \"tell X to call me\", write: \"Hey, please call me whenever you are free!\"\n\n"
+            f"5. SAFETY BOUNDARIES:\n"
             f"   - Never share passwords, bank details, OTPs, or agree to financial transactions.\n"
             f"{'=' * 60}\n"
         )
