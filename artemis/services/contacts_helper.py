@@ -81,13 +81,26 @@ def extract_contacts_from_text(text: str) -> list[dict[str, str]]:
 def generate_vcf(contacts: list[dict[str, str]], prefix: str = "") -> str:
     """Generate a valid vCard 3.0 multi-contact text string."""
     cards = []
+    prefix_clean = prefix.strip()
+    prefix_stem = prefix_clean.rstrip("_- ").strip()
+
     for c in contacts:
         name = c.get("name", "").strip()
         phone = c.get("phone", "").strip()
         if not name or not phone:
             continue
 
-        full_name = f"{prefix}{name}".strip()
+        if prefix_clean:
+            if name.startswith(prefix_clean):
+                full_name = name
+            elif prefix_stem and (name.startswith(f"{prefix_stem}_") or name.startswith(f"{prefix_stem} ")):
+                remainder = re.sub(rf"^{re.escape(prefix_stem)}[\s_\-]+", "", name)
+                full_name = f"{prefix_clean}{remainder}".strip()
+            else:
+                full_name = f"{prefix_clean}{name}".strip()
+        else:
+            full_name = name
+
         cards.append(
             f"BEGIN:VCARD\n"
             f"VERSION:3.0\n"
