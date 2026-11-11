@@ -141,7 +141,11 @@ class FlashRunner:
 
     def __init__(self, ctx: ArtemisContext, goal: str, max_turns: int | None = None):
         self.ctx = ctx
-        self.goal = goal
+        try:
+            from artemis.services.whatsapp_manager import whatsapp_locked_chat_manager
+            self.goal = whatsapp_locked_chat_manager.enrich_goal(goal)
+        except Exception:
+            self.goal = goal
         try:
             cfg = load_agent_config()
             self.max_turns = max_turns if max_turns is not None else cfg.flash.max_turns
@@ -1056,6 +1060,21 @@ class FlashRunner:
         current_xml_list = xml_list
         previous_turn: _TurnRecord | None = None
         pending_notices: list[str] = []
+
+        # Check for learned skill in self-learning memory
+        try:
+            from artemis.memory.skill_store import learned_skill_store
+            matching_skill = learned_skill_store.find_matching_skill(self.goal)
+            if matching_skill:
+                guide = learned_skill_store.format_learned_guide(matching_skill)
+                pending_notices.append(guide)
+                logger.info(
+                    f"🧠 [Self-Learning] Active memory matched task '{self.goal}' "
+                    f"-> '{matching_skill.get('goal')}' ({len(matching_skill.get('actions', []))} steps). "
+                    f"Injecting learned execution path into FlashRunner prompt."
+                )
+        except Exception as skill_err:
+            logger.debug(f"[Self-Learning] Skill lookup error: {skill_err}")
 
         while limit is None or turns < limit:
             turns += 1

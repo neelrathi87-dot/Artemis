@@ -107,6 +107,8 @@ live_screenshot*.png
 !.env.example
 *.pem
 *.key
+config/whatsapp_locked_chats.json
+config/learned_skills.json
 
 # OS Artifacts
 .DS_Store

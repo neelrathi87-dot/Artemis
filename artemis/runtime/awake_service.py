@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from typing import Iterable
 
 from adbutils import AdbClient
@@ -84,6 +85,133 @@ def sanitize_device_state(device_id: str) -> None:
     )
 
 
+def _is_device_locked(device_id: str) -> bool:
+    """Check if the device has a secure lock screen currently showing."""
+    # 1. Check dumpsys window policy for Keyguard indicators
+    result = _run_awake_adb_command(
+        device_id,
+        ["shell", "dumpsys", "window", "policy"],
+        "check window policy lock state",
+    )
+    if result and result.returncode == 0:
+        out = result.stdout or ""
+        # Modern KeyguardServiceDelegate showing flag
+        m_delegate = re.search(r"KeyguardServiceDelegate\b.*?showing\s*=\s*(true|false|1|0)\b", out, re.M | re.S)
+        if m_delegate:
+            return m_delegate.group(1).lower() in {"true", "1"}
+
+        # KeyguardStateMonitor or status bar keyguard
+        m_monitor = re.search(r"KeyguardStateMonitor\b.*?mIsShowing\s*=\s*(true|false|1|0)\b", out, re.M | re.S)
+        if m_monitor:
+            return m_monitor.group(1).lower() in {"true", "1"}
+
+        m_sb = re.search(r"isStatusBarKeyguard:\s*(true|false|1|0)\b", out, re.I)
+        if m_sb:
+            return m_sb.group(1).lower() in {"true", "1"}
+
+    # 2. Check dumpsys trust for the CURRENT user (ignoring Secure Folder / Work Profile)
+    result_trust = _run_awake_adb_command(
+        device_id,
+        ["shell", "dumpsys", "trust"],
+        "check trust lock state",
+    )
+    if result_trust and result_trust.returncode == 0:
+        out_trust = result_trust.stdout or ""
+        match_trust = re.search(r"^.*\(current\).*?\bdeviceLocked\s*=\s*(true|false|1|0)\b", out_trust, re.I | re.M)
+        if match_trust:
+            return match_trust.group(1).lower() in {"true", "1"}
+
+    # 3. Fallback to dumpsys window
+    res_win = _run_awake_adb_command(
+        device_id,
+        ["shell", "dumpsys", "window"],
+        "check window lock state fallback",
+    )
+    if res_win and res_win.returncode == 0:
+        win_out = res_win.stdout or ""
+        if (
+            "mShowingLockscreen=true" in win_out
+            or "mDreamingLockscreen=true" in win_out
+            or "mInputRestricted=true" in win_out
+        ):
+            return True
+
+    return False
+
+
+def _unlock_secure_keyguard(device_id: str, force: bool = False) -> bool:
+    """Unlock a PIN-secured lock screen using the configured PIN.
+
+    Returns True if unlock was attempted successfully, False if no PIN is
+    configured or if passphrase authorization is required and force is False.
+    """
+    pin = settings.ARTEMIS_DEVICE_PIN or os.environ.get("ARTEMIS_DEVICE_PIN")
+    if not pin:
+        return False
+
+    required_passphrase = getattr(settings, "ARTEMIS_UNLOCK_PASSPHRASE", None) or os.environ.get("ARTEMIS_UNLOCK_PASSPHRASE")
+    if required_passphrase and not force:
+        logger.warning(
+            f"Device {device_id} is locked, but unlock passphrase protection is active. "
+            "PIN auto-unlock blocked without passphrase verification."
+        )
+        return False
+
+    if not _is_device_locked(device_id):
+        logger.debug(f"Device {device_id} is not locked, skipping PIN unlock")
+        return True
+
+    logger.info(f"Unlocking secure lock screen on {device_id}...")
+
+    # 1. Wake the screen
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+        "wake screen for unlock",
+    )
+    time.sleep(0.3)
+
+    # 2. Swipe up to reveal the PIN entry
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "input", "swipe", "540", "1800", "540", "600", "250"],
+        "swipe up to PIN entry",
+    )
+    time.sleep(0.4)
+
+    # 3. Enter the PIN
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "input", "text", pin],
+        "enter device PIN",
+    )
+    time.sleep(0.3)
+
+    # 4. Press Enter to confirm PIN submission
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "input", "keyevent", "66"],
+        "confirm PIN entry",
+    )
+
+    # 5. Dismiss non-secure keyguard fallback
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "wm", "dismiss-keyguard"],
+        "dismiss keyguard post-PIN",
+    )
+
+    # 6. Check for unlock success with brief poll (animations take up to 1.5s)
+    for _ in range(6):
+        time.sleep(0.3)
+        if not _is_device_locked(device_id):
+            logger.info(f"Device {device_id} unlocked successfully")
+            return True
+
+    logger.info(f"PIN entered on {device_id} (keyguard transition in progress)")
+    return True
+
+
 def _configure_usb_stay_awake(device_id: str) -> str | None:
     """Enable USB stay-awake, falling back to an effective host heartbeat.
 
@@ -105,10 +233,19 @@ def _configure_usb_stay_awake(device_id: str) -> str | None:
             ["shell", "svc", "power", "stayon", "usb"],
         ),
         ("wake display", ["shell", "input", "keyevent", "KEYCODE_WAKEUP"]),
-        ("dismiss non-secure keyguard", ["shell", "wm", "dismiss-keyguard"]),
     )
     for description, args in commands:
         _run_awake_adb_command(device_id, args, description)
+
+    # Unlock secure keyguard if a PIN is configured
+    _unlock_secure_keyguard(device_id)
+
+    # Dismiss non-secure keyguard (handles swipe-to-unlock when no PIN is set)
+    _run_awake_adb_command(
+        device_id,
+        ["shell", "wm", "dismiss-keyguard"],
+        "dismiss non-secure keyguard",
+    )
 
     configured = _run_awake_adb_command(
         device_id,

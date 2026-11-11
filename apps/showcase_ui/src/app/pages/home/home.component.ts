@@ -19,6 +19,8 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AgentService } from '../../services/agent.service';
 import { SystemService } from '../../services/system.service';
+import { VoiceInputService } from '../../services/voice-input.service';
+import { VoiceSynthesisService } from '../../services/voice-synthesis.service';
 import {
   AdbServerConnectionResult,
   AdbServerDevice,
@@ -112,6 +114,8 @@ export class HomeComponent implements OnInit, OnDestroy {
   public agentService = inject(AgentService);
   public systemService = inject(SystemService);
   public taskRecService = inject(TaskRecommendationService);
+  public voiceInput = inject(VoiceInputService);
+  public voiceSynthesis = inject(VoiceSynthesisService);
   private router = inject(Router);
 
   // High-level navigation mode: 'diagnostics' (System Setup Guide) vs 'launcher' (Task Execution)
@@ -195,6 +199,46 @@ export class HomeComponent implements OnInit, OnDestroy {
   public taskGoal = signal<string>('');
   public isSubmitting = signal<boolean>(false);
   public errorMessage = signal<string | null>(null);
+
+  // Security Passphrase State (Masked & Protected)
+  public unlockPassphrase = signal<string>('');
+  public showPassphraseField = signal<boolean>(false);
+  public isPassphraseMasked = signal<boolean>(true);
+
+  public isPassphraseValid(text: string): boolean {
+    return !!text && text.trim().length > 0;
+  }
+
+  public isPassphraseArmed = computed<boolean>(() => this.isPassphraseValid(this.unlockPassphrase()));
+
+  public togglePassphraseField(): void {
+    this.showPassphraseField.update((v) => !v);
+  }
+
+  public togglePassphraseMask(): void {
+    this.isPassphraseMasked.update((v) => !v);
+  }
+
+  public clearPassphrase(): void {
+    this.unlockPassphrase.set('');
+  }
+
+  public onPassphraseInputChange(val: string): void {
+    this.unlockPassphrase.set(val);
+  }
+
+  /**
+   * Intercept typing in task goal to stealth-mask any secret words
+   */
+  public onTaskGoalChange(raw: string): void {
+    const currentPass = this.unlockPassphrase().trim();
+    if (currentPass && raw.toLowerCase().includes(currentPass.toLowerCase())) {
+      const cleaned = raw.replace(new RegExp(currentPass, 'gi'), '').trim();
+      this.taskGoal.set(cleaned);
+      return;
+    }
+    this.taskGoal.set(raw);
+  }
 
   // Pro Mode Outputter & Structured Output Configuration
   public expectedOutput = signal<string>('');
@@ -367,6 +411,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   public isCredentialsReady = computed(() => this.systemService.isCredentialsReady());
   public isSkipCredentialsCheck = computed(() => this.systemService.isSkipCredentialsCheck());
   public isDeviceReady = computed(() => this.systemService.isDeviceReady());
+  public isDeviceLocked = computed(() => this.systemService.isDeviceLocked());
 
   // Device information
   public activeDevice = computed(() => this.systemService.activeDevice());
@@ -378,6 +423,8 @@ export class HomeComponent implements OnInit, OnDestroy {
   public passedStepCount = computed(() => this.systemService.passedStepCount());
   public blockerCount = computed(() => this.systemService.blockerCount());
   public passedBlockerCount = computed(() => this.systemService.passedBlockerCount());
+  public learnedSkillsCount = computed(() => this.agentService.learnedSkillsCount());
+  public learnedSkills = computed(() => this.agentService.learnedSkills());
 
   // Configured LLM providers from probe metadata
   public configuredLlmProviders = computed<any[]>(() => {
@@ -1066,8 +1113,44 @@ export class HomeComponent implements OnInit, OnDestroy {
     this.activeTab.set('launcher');
   }
 
+  private keywordDebounceTimer: any = null;
+
+  public toggleVoiceInput(): void {
+    if (this.voiceInput.isListening()) {
+      this.voiceInput.stopListening();
+      if (this.keywordDebounceTimer) {
+        clearTimeout(this.keywordDebounceTimer);
+        this.keywordDebounceTimer = null;
+      }
+      return;
+    }
+
+    this.voiceInput.startListening(this.taskGoal(), (text) => {
+      // Check if user spoken text matches current entered passphrase
+      const currentPass = this.unlockPassphrase().trim();
+      if (currentPass && text.toLowerCase().includes(currentPass.toLowerCase())) {
+        const cleaned = text.replace(new RegExp(currentPass, 'gi'), '').trim();
+        this.taskGoal.set(cleaned || 'Unlock phone and go to home screen');
+
+        if (this.keywordDebounceTimer) {
+          clearTimeout(this.keywordDebounceTimer);
+        }
+        this.keywordDebounceTimer = setTimeout(() => {
+          this.voiceInput.stopListening();
+          this.voiceSynthesis.speak('Voice authorization confirmed. Unlocking phone.');
+          this.runTask();
+          this.keywordDebounceTimer = null;
+        }, 650);
+        return;
+      }
+
+      this.taskGoal.set(text);
+    });
+  }
+
   public runTask(): void {
-    const goal = this.taskGoal().trim();
+    const hasValidPass = this.isPassphraseValid(this.unlockPassphrase());
+    const goal = this.taskGoal().trim() || (hasValidPass ? 'confirm device is unlocked on home screen' : '');
     if (!goal) {
       this.errorMessage.set('Please enter a task goal before running.');
       return;
@@ -1092,19 +1175,21 @@ export class HomeComponent implements OnInit, OnDestroy {
         this.selectedProfile() === 'pro' ? this.enableOutputter() : undefined,
         this.selectedProfile() === 'pro'
           ? { verificationLevel: this.verificationLevel().id, explorerMode: this.explorerMode().id }
-          : undefined
+          : undefined,
+        this.unlockPassphrase().trim() || undefined
       )
       .subscribe({
         next: () => {
           this.isSubmitting.set(false);
+          this.unlockPassphrase.set('');
           this.router.navigate(['/workspace']);
         },
         error: (err) => {
           console.error('Failed to submit task from home page:', err);
           this.isSubmitting.set(false);
-          this.errorMessage.set(
-            err?.error?.detail || 'Failed to submit task. Please check server connection.'
-          );
+          const detail = err?.error?.detail || 'Failed to submit task. Please check server connection.';
+          this.errorMessage.set(detail);
+          this.voiceSynthesis.speak(detail);
         }
       });
   }

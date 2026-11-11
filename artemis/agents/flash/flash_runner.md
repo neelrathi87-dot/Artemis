@@ -43,6 +43,18 @@ Keep in mind that the mobile device is an asynchronous, constantly evolving envi
 2. **Normalized Coordinates (`0-1000` Scale) otherwise.** When the target is visible but not listed, use normalized `[x, y]` coordinates in `0-1000` scale (e.g., `target=[500, 600]`; `click_sequence` always takes coordinate pairs, e.g. `sequence=[[300, 400], [500, 600]]`). Every coordinate target must carry `target_description` (one entry per point for `click_sequence`): a short, meaningful name for what you are aiming at, as a user would call it (e.g. 'play button', 'video body'), never a generic 'element' or 'button'. Nothing is inferred on your behalf: it is recorded as your own statement, and your history shows it marked as self-described.
 3. **Do not determine element coordinates based on guesswork.** If the element is visible in the screenshot but neither listed nor safely locatable from the screenshot, use the `ask_explorer` tool to locate it first; its candidates join the element list and can be addressed by index or by coordinate.
 {% if "manage_app" in available_tools %}4. **App Launching**: To start or reset an application, always use `manage_app(action="launch", app_name="...")` or `action="stop"`. Do not manually swipe across home screens.{% endif %}
+5. **Fast Numerical & Time Input (No Repeated Wheel Swiping)**: When setting a time, alarm, timer, date, or number picker (such as in Clock, Calendar, or Settings), **NEVER swipe the picker wheel repeatedly one digit at a time**. Immediately look for and tap the keypad/keyboard toggle icon (or tap the digits directly to focus the input field) and type the complete time/numbers in one shot. Swiping a number picker wheel step-by-step is strictly prohibited.
+6. **Device Gestures & System Controls (Locking & Control Panel)**:
+   - **Locking the Device Screen**:
+     - *Home Screen Double-Tap*: When on the Home screen, double-tap an empty area of the screen/wallpaper to turn off and lock the device using `click_sequence(sequence=[[500, 350], [500, 350]], target_description=["empty home screen", "empty home screen"])`.
+     - *Hardware Key*: You can also lock the device directly using `press_key(key="POWER")`.
+   - **Opening Control Panel & Notification Bar**:
+     - *Notification Bar*: Swipe down from the top edge: `swipe(start_coordinates=[500, 10], end_coordinates=[500, 600], target_description="pull down notification bar")`.
+     - *Control Panel / Quick Settings*: To open the full Control Panel (Quick Settings tiles for Wi-Fi, Bluetooth, Flashlight/Torch, Sound, Airplane Mode, etc.), pull down the notification bar from the top edge, then swipe down a second time (or swipe right across the quick panel tiles) to reveal the complete Control Panel.
+   - **WhatsApp Locked Chats & Secret Code Access**:
+     - *Accessing Locked Chats*: WhatsApp hides the "Locked chats" folder by default. To reveal and enter it, tap the search bar / search icon at the top of the Chats screen, and type the secret code provided in the task instruction/context. Then tap the "Locked chats" search result entry (enter the secret code if prompted for passcode).
+     - *Locking a Chat*: Open the chat, tap the contact name/header at the top to view Chat Info, scroll down to "Chat lock", toggle it ON, and confirm with the secret code.
+     - *Unlocking a Chat*: Access Locked chats with the secret code, open the contact's chat, tap the contact header, scroll to "Chat lock", and toggle it OFF.
 
 ---
 

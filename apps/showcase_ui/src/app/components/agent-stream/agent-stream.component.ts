@@ -1554,7 +1554,9 @@ export class AgentStreamComponent implements AfterViewInit {
 
   public getScreenRecordingButtonTitle(): string {
     if (this.agentService.isCurrentSessionRunning()) {
-      return 'Task is currently running (Recording screen)';
+      return this.agentService.currentSessionRecordingStatus() === 'unavailable'
+        ? 'Task is currently running (Screen recording is disabled)'
+        : 'Task is currently running (Recording screen)';
     }
     if (this.agentService.currentSessionRecordingStatus() === 'processing') {
       return 'Preparing screen recording...';

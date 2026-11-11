@@ -62,11 +62,11 @@ def lightweight_judge_default() -> "LLMWithFallback":
     planner validation): a flash-lite model at temperature 0."""
     return LLMWithFallback(
         provider="google",
-        model="gemini-3.5-flash-lite",
+        model="gemini-3.1-flash-lite",
         temperature=0.0,
         fallback=LLM(
             provider="google",
-            model="gemini-3.1-flash-lite",
+            model="gemini-3-flash-preview",
             temperature=0.0,
         ),
     )
@@ -139,10 +139,10 @@ def _expand_default_into_nodes(config_dict: dict) -> dict:
         "default",
         {
             "provider": "google",
-            "model": "gemini-3.8-flash",
+            "model": "gemini-3.5-flash-lite",
             "fallback": {
                 "provider": "google",
-                "model": "gemini-3.7-flash",
+                "model": "gemini-3.1-flash-lite",
             },
         },
     )

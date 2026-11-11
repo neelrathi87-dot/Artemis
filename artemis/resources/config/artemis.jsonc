@@ -8,28 +8,29 @@
   // ------------------------------------------------------------------------------
   "default": {
     "provider": "google",
-    "model": "gemini-3.8-flash",
-    "thinking_level": "medium",
+    "model": "gemini-3.5-flash",
+    "thinking_level": "low",
     "fallback": {
       "provider": "google",
-      "model": "gemini-3.7-flash",
-      "thinking_level": "medium"
+      "model": "gemini-3-flash-preview",
+      "thinking_level": "low"
     }
   },
 
   // ------------------------------------------------------------------------------
   // 2. Ready-to-Use Presets (Switch easily in code or CLI)
   // ------------------------------------------------------------------------------
-  "presets": {
+    "presets": {
     "gemini-flagship": {
       "provider": "google",
-      "model": "gemini-3.8-flash",
-      "fallback": { "provider": "google", "model": "gemini-3.7-flash" }
+      "model": "gemini-3.5-flash",
+      "thinking_level": "low",
+      "fallback": { "provider": "google", "model": "gemini-3-flash-preview" }
     },
     "gemini-flash": {
       "provider": "google",
-      "model": "gemini-2.5-flash",
-      "fallback": { "provider": "google", "model": "gemini-2.0-flash" }
+      "model": "gemini-3.5-flash",
+      "fallback": { "provider": "google", "model": "gemini-3-flash-preview" }
     },
     "openai-gpt4o": {
       "provider": "openai",
@@ -38,8 +39,8 @@
     },
     "cost-saving": {
       "provider": "google",
-      "model": "gemini-3.5-flash-lite",
-      "fallback": { "provider": "google", "model": "gemini-3.1-flash-lite" }
+      "model": "gemini-3.1-flash-lite",
+      "fallback": { "provider": "google", "model": "gemini-3-flash-preview" }
     },
     "local-ollama": {
       "provider": "openai",
@@ -59,7 +60,7 @@
 
     // 🎯 Operator: Screen perception, element interaction, and direct execution
     "operator": {
-      "thinking_level": "medium",
+      "thinking_level": "high",
       "include_thoughts": true
     },
 
@@ -87,7 +88,7 @@
     //  - "flash" version delegates directly to object_detector (requires Gemini ER model above).
     //  - "pro" / "ultra" versions run multi-turn ReAct loops (supports both Native Gemini and Universal Multi-Model LangChain engines).
     "explorer": {
-      "thinking_level": "medium"
+      "thinking_level": "low"
     },
 
     // 📋 Summarizer: Aggregates step history and generates structured outcome
@@ -95,10 +96,10 @@
 
     // 🔽 Hopper: Fast lightweight package name locator
     "hopper": {
-      "model": "gemini-3.5-flash-lite",
+      "model": "gemini-3.5-flash",
       "fallback": {
         "provider": "google",
-        "model": "gemini-3.1-flash-lite"
+        "model": "gemini-3-flash-preview"
       }
     },
 
@@ -120,7 +121,7 @@
     // 🔎 Checker: Plan-declared checkpoint verification and exit final review.
     // Thoughts are streamed so the verifier's reasoning shows live in the timeline.
     "checker": {
-      "thinking_level": "medium",
+      "thinking_level": "low",
       "include_thoughts": true
     }
     // 🎯 Planner Validation: Advisory review of milestone changes.
@@ -144,8 +145,9 @@
       // Summarizes intermediate steps in background without blocking the runner,
       // replacing images only after strictly objective, high-density summaries are ready.
       "step_summarizer": {
-        "enabled": true, // Whether background step summarization is active
-        "model": "gemini-3.5-flash-lite", // Lightweight model for fast background inference
+
+        "enabled": false, // Whether background step summarization is active
+        "model": "gemini-3.1-flash-lite", // Lightweight model for fast background inference
         "prune_history_xml": true // Prune outdated heavy XML trees from historical steps
       }
     },
@@ -185,8 +187,8 @@
       },
       // 🎬 Video Analyzer & Screen Recording: Continuous screen recording via scrcpy and temporal analysis
       "video_analyzer": {
-        "enabled": true, // Whether continuous video recording and video tools are active (default: auto-detected)
-        "enable_ledger": true
+        "enabled": false, // Whether continuous video recording and video tools are active (default: auto-detected)
+        "enable_ledger": false
       }
     },
     // ==========================================================================
@@ -246,7 +248,7 @@
         // call each); milestone closes are exempt, the hard line waives it.
         "min_steps": 3,
         "target_source_tokens": 2000,
-        "model": "gemini-3.8-flash",
+        "model": "gemini-3.1-flash-lite",
         "max_chunks": 8
         // "max_eras": 8 // independent era cap; omitted = follows max_chunks
       },
@@ -265,8 +267,8 @@
     },
     // 🎬 Screen Recording & Video Analyzer Configuration
     "video_analyzer": {
-      "enabled": true, // Whether continuous screen recording via scrcpy is active (default: auto-detected)
-      "enable_ledger": true
+      "enabled": false, // Whether continuous screen recording via scrcpy is active (default: auto-detected)
+      "enable_ledger": false
       // "processing": "auto", // How Gemini sub-agents watch a clip: auto (agentic on Gemini 3.6+ Flash, static elsewhere) | agentic | static
       // "agentic_chunk_size_seconds": 600, // Longest clip one agentic sub-agent takes; static mode keeps chunk_size_seconds (60)
       // "agentic_call_timeout_seconds": 300 // Hard timeout for one agentic sub-agent response

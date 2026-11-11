@@ -692,6 +692,12 @@ class DataEngine:
         try:
             self.storage.update_session(session)
             logger.info(f"Session ended: {session_id} with status: {status}")
+            if status == "completed" and session and session.initial_goal:
+                try:
+                    from artemis.memory.skill_store import learned_skill_store
+                    learned_skill_store.learn_from_session(str(session_id), session.initial_goal)
+                except Exception as skill_err:
+                    logger.debug(f"Could not record learned skill in DataEngine: {skill_err}")
             self._publish("session_ended", session.model_dump())
         except Exception as e:
             logger.error(f"Failed to end session in DataEngine: {e}")

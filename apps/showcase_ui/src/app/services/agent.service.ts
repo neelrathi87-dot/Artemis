@@ -23,6 +23,7 @@ import { ProTuningDefaults, ProTuningOptions } from '../core/models/pro-tuning.m
 import { StepItemData, StepReplayFrame, LLMStreamResetEventData, StreamResetNotice, DEFAULT_STREAM_RESET_MESSAGE, PersistedCheckerStream, StreamSegment } from '../core/models/stream.model';
 import { extractStepReplayFrames } from '../utils/action-formatter.util';
 import { persistedStreamToSegments } from '../utils/stream-aggregator.util';
+import { VoiceSynthesisService } from './voice-synthesis.service';
 export type { Session, ModelInfo, TaskQueueItem, AgentStatusResponse, StepItemData, StepReplayFrame, LLMStreamResetEventData, StreamResetNotice };
 
 const SESSION_CACHE_KEY = 'artemis.sessions.v1';
@@ -70,6 +71,7 @@ interface SessionVideoResponse {
 export class AgentService {
   private http = inject(HttpClient);
   private zone = inject(NgZone);
+  private voiceSynthesis = inject(VoiceSynthesisService);
   private activePauseCardKey: string | null = null;
 
   // Signals to expose state to components
@@ -78,6 +80,10 @@ export class AgentService {
   public activeTasks = signal<any[]>([]);
   // Persistent tracking of active/pending sessions across polling boundaries
   private activeSessionTracking = new Map<string, Session>();
+
+  // Learned skills memory store
+  public learnedSkills = signal<any[]>([]);
+  public learnedSkillsCount = computed(() => this.learnedSkills().length);
 
   public sessions = computed(() => {
     const raw = this.rawSessions();
@@ -383,12 +389,24 @@ export class AgentService {
   constructor() {
     this.restoreSessionsCache();
     this.fetchSessions();
+    this.fetchLearnedSkills();
     this.startStatusPolling();
     this.ensureLiveStream();
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', this.onVisibilityChange);
     }
     inject(DestroyRef).onDestroy(() => this.destroy());
+  }
+
+  public fetchLearnedSkills(): void {
+    this.http.get<{ skills: any[]; count: number }>('/api/skills').subscribe({
+      next: (res) => {
+        if (res && Array.isArray(res.skills)) {
+          this.learnedSkills.set(res.skills);
+        }
+      },
+      error: () => {}
+    });
   }
 
   /**
@@ -420,7 +438,8 @@ export class AgentService {
     profile: string = 'flash',
     expectedOutput?: string,
     enableOutputter?: boolean,
-    proTuning?: ProTuningOptions
+    proTuning?: ProTuningOptions,
+    unlockPassphrase?: string
   ): Observable<any> {
     return new Observable((obs) => {
       const submittedEvent: StartupProgressEvent = {
@@ -430,6 +449,9 @@ export class AgentService {
       };
       this.pendingStartupProgress.set([submittedEvent]);
       const payload: any = { goal, profile };
+      if (unlockPassphrase && unlockPassphrase.trim()) {
+        payload.unlock_passphrase = unlockPassphrase.trim();
+      }
       if (expectedOutput && expectedOutput.trim()) {
         payload.expected_output = expectedOutput.trim();
       }
@@ -847,6 +869,7 @@ export class AgentService {
             }
             if (parsedData?.initial_goal) {
               this.runningGoal.set(parsedData.initial_goal);
+              this.voiceSynthesis.speak('Starting task: ' + parsedData.initial_goal);
             }
             this.fetchSessions();
 
@@ -863,6 +886,19 @@ export class AgentService {
               this.applySessionEndedStatus(endedId, parsedData);
               this.invalidateStatusSignatures();
               this.activeTasks.update(list => list.filter(at => at.session_id !== endedId));
+            }
+            const reportedStatus = String(parsedData?.status || '').toLowerCase();
+            if (reportedStatus === 'completed' || reportedStatus === 'success') {
+              const summary = parsedData?.summary || parsedData?.initial_goal;
+              if (summary) {
+                this.voiceSynthesis.speak('Task completed: ' + summary);
+              } else {
+                this.voiceSynthesis.speak('Task completed successfully.');
+              }
+            } else if (reportedStatus === 'failed') {
+              this.voiceSynthesis.speak('Task execution failed.');
+            } else if (reportedStatus === 'cancelled') {
+              this.voiceSynthesis.speak('Task stopped.');
             }
             const remaining = this.activeTasks();
             if (remaining.length > 0) {
@@ -883,6 +919,7 @@ export class AgentService {
             this.isPaused.set(false);
             this.fetchSessions();
             this.fetchStatus();
+            this.fetchLearnedSkills();
             if (endedId) {
               this.fetchNotes(endedId);
               if (String(endedId) === String(this.currentSessionId() || '')) {

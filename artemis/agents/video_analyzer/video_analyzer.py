@@ -418,7 +418,7 @@ class VideoAnalyzer:
         utils_cfg = getattr(llm_config, "utils", None) if llm_config else None
         llm_cfg = getattr(utils_cfg, "video_analyzer", None) if utils_cfg else None
         self.model_name = strip_provider_prefix(
-            llm_cfg.model if (llm_cfg and hasattr(llm_cfg, "model")) else "gemini-3.8-flash"
+            llm_cfg.model if (llm_cfg and hasattr(llm_cfg, "model")) else "gemini-3.1-flash-lite"
         )
 
         has_google_key = bool(
@@ -829,7 +829,7 @@ class VideoAnalyzer:
                 if getattr(llm_cfg, "thinking_level", None) is not None:
                     thinking_level = llm_cfg.thinking_level
             else:
-                self.model_name = "gemini-3.8-flash"
+                self.model_name = "gemini-3.1-flash-lite"
 
             # Track files for cleanup
             self.local_files_to_cleanup = set()

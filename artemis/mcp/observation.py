@@ -40,7 +40,7 @@ __all__ = ["observe"]
 async def observe(
     ctx: ArtemisContext,
     controller: UnifiedMobileController,
-    settle_ms: int = 400,
+    settle_ms: int = 100,
     ocr_results: list | None = None,
 ) -> tuple[ObserveResult, bytes | None]:
     """Captures and indexes the current screen.

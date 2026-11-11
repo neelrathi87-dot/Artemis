@@ -131,10 +131,19 @@ limitations under the License.
                 </button>
               }
 
+              <!-- Voice Input (Microphone) Button -->
+              <button type="button" class="dock-circle-btn btn-mic"
+                [class.is-listening]="voiceInput.isListening()"
+                (click)="toggleVoiceInput($event)"
+                [title]="voiceInput.isListening() ? 'Stop voice recording' : 'Speak task with microphone'"
+                aria-label="Voice input">
+                <span class="material-symbols-outlined">{{ voiceInput.isListening() ? 'graphic_eq' : 'mic' }}</span>
+              </button>
+
               <!-- Send Button -->
               <button type="button" class="dock-circle-btn btn-send"
-                [class.has-content]="!!taskInput.trim()"
-                [disabled]="!taskInput.trim() || isSubmitting()"
+                [class.has-content]="!!taskInput.trim() || isPassphraseArmed()"
+                [disabled]="(!taskInput.trim() && !isPassphraseArmed()) || isSubmitting()"
                 (click)="submitTask()"
                 [title]="isSubmitting() ? 'Starting task...' : 'Start task (Enter)'"
                 aria-label="Start task"
@@ -166,6 +175,48 @@ limitations under the License.
                     <span class="pill-label">Pro</span>
                   </button>
                 </div>
+
+                @if (isPassphraseArmed()) {
+                  <span class="auth-badge-pill" title="Security authorization active. Passphrase hidden for privacy.">
+                    <span class="material-symbols-outlined auth-icon">verified_user</span>
+                    <span>Authorized</span>
+                    <button type="button" class="btn-clear-auth" (click)="clearPassphrase($event)" title="Clear authorization">×</button>
+                  </span>
+                }
+
+                @if (showPassphraseInput()) {
+                  <div class="dock-pass-input-wrap" (click)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()">
+                    <span class="material-symbols-outlined lock-icon">key</span>
+                    <input
+                      [type]="isPassphraseMasked() ? 'password' : 'text'"
+                      class="dock-pass-field"
+                      placeholder="Passphrase..."
+                      [ngModel]="unlockPassphrase()"
+                      (ngModelChange)="setPassphrase($event)"
+                      (focus)="isPassphraseFocused.set(true)"
+                      (blur)="isPassphraseFocused.set(false)"
+                      (click)="$event.stopPropagation()"
+                      (mousedown)="$event.stopPropagation()"
+                      (keydown.enter)="submitTask()"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <button type="button" class="btn-toggle-eye" (click)="togglePassphraseMask($event)" title="Show/Hide">
+                      <span class="material-symbols-outlined">{{ isPassphraseMasked() ? 'visibility_off' : 'visibility' }}</span>
+                    </button>
+                  </div>
+                }
+
+                <button
+                  type="button"
+                  class="btn-pass-dock-toggle"
+                  [class.active]="showPassphraseInput() || isPassphraseArmed()"
+                  (click)="togglePassphraseInput($event)"
+                  title="Enter secret authorization passphrase (masked with dots)"
+                  aria-label="Security passphrase"
+                >
+                  <span class="material-symbols-outlined">{{ isPassphraseArmed() ? 'lock' : 'lock_open' }}</span>
+                </button>
               </div>
             </div>
           </div>

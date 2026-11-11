@@ -32,6 +32,7 @@ class RunRequest(BaseModel):
     ingress: str | None = "frontend"
     session_id: str | None = None
     conversation_id: str | None = None
+    unlock_passphrase: str | None = None
 
 
 class ReplayRequest(BaseModel):

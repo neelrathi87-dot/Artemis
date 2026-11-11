@@ -357,6 +357,16 @@ class TemplatePromptComponent(PromptComponent):
 
         plan_and_history = kwargs.get("plan_and_history", "No plan or history yet.")
 
+        # Check for learned skill memory to accelerate Pro planning and operation
+        try:
+            from artemis.memory.skill_store import learned_skill_store
+            matching_skill = learned_skill_store.find_matching_skill(state.initial_goal or "")
+            if matching_skill:
+                guide = learned_skill_store.format_learned_guide(matching_skill)
+                plan_and_history = f"{guide}\n\n{plan_and_history}"
+        except Exception:
+            pass
+
         full_prompt = Template(prompt_template).render(
             initial_goal=state.initial_goal,
             subgoals_status="",

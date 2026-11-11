@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { VoiceSynthesisService } from '../../services/voice-synthesis.service';
 
 @Component({
   selector: 'app-nav-switcher',
@@ -43,9 +44,28 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
         <span class="material-symbols-outlined tab-icon">space_dashboard</span>
         <span class="tab-label">Workspace</span>
       </a>
+      <div class="nav-divider"></div>
+      <button
+        type="button"
+        class="nav-voice-btn"
+        [class.is-speaking]="voiceSynthesis.isSpeaking()"
+        [class.is-muted]="!voiceSynthesis.isEnabled()"
+        (click)="voiceSynthesis.toggleVoice()"
+        [title]="voiceSynthesis.isEnabled() ? (voiceSynthesis.isSpeaking() ? 'Artemis is speaking... (click to mute)' : 'Artemis Voice ON (click to mute)') : 'Artemis Voice Muted (click to enable)'"
+        aria-label="Toggle Artemis Voice"
+      >
+        <span class="material-symbols-outlined voice-icon">
+          {{ !voiceSynthesis.isEnabled() ? 'volume_off' : (voiceSynthesis.isSpeaking() ? 'record_voice_over' : 'volume_up') }}
+        </span>
+        <span class="voice-label">
+          {{ !voiceSynthesis.isEnabled() ? 'Muted' : (voiceSynthesis.isSpeaking() ? 'Speaking...' : 'Voice') }}
+        </span>
+      </button>
     </nav>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./nav-switcher.component.scss']
 })
-export class NavSwitcherComponent {}
+export class NavSwitcherComponent {
+  public voiceSynthesis = inject(VoiceSynthesisService);
+}

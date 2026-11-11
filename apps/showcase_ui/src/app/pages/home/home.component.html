@@ -1708,13 +1708,19 @@
         <!-- Prerequisites Drop Alert if any blocker probe is not passing -->
         @if (hasReadinessReport() && !isReady()) {
           <div class="launcher-warning-bar" (click)="setTab('diagnostics')">
-            <span class="material-symbols-outlined warn-icon">{{ adbProbe()?.summary === 'Device Locked' ? 'lock' : 'warning' }}</span>
-            <span>
-              {{ adbProbe()?.summary === 'Device Locked'
-                ? 'Android device is locked. Unlock it and enter the home screen before running a task.'
-                : 'Prerequisites incomplete: runtime, credentials, or Android device is not ready. Click here to open Setup Guide.' }}
-            </span>
+            <span class="material-symbols-outlined warn-icon">warning</span>
+            <span>Prerequisites incomplete: runtime, credentials, or Android device is not ready. Click here to open Setup Guide.</span>
             <span class="material-symbols-outlined arrow">arrow_forward</span>
+          </div>
+        }
+
+        <!-- Device Locked Notice: Artemis can auto-unlock -->
+        @if (hasReadinessReport() && isDeviceLocked() && isReady()) {
+          <div class="launcher-warning-bar" style="background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.25); cursor: default;">
+            <span class="material-symbols-outlined warn-icon" style="color: #d97706;">lock</span>
+            <span style="color: #b45309;">
+              Device is locked. Voice authorization or manual unlock required to proceed.
+            </span>
           </div>
         }
 
@@ -1743,7 +1749,8 @@
               id="task-input-field"
               class="composer-textarea"
               rows="3"
-              [(ngModel)]="taskGoal"
+              [ngModel]="taskGoal()"
+              (ngModelChange)="onTaskGoalChange($event)"
               [disabled]="isSubmitting()"
               placeholder="Describe what you want to achieve on your phone (e.g. Open Gmail and search for latest emails)..."
               (keydown.control.enter)="runTask()"
@@ -1811,17 +1818,72 @@
             </div>
 
             <div class="bar-right">
+              @if (isPassphraseArmed()) {
+                <div class="passphrase-armed-badge" title="Security Passphrase Armed (Hidden for Privacy)">
+                  <span class="material-symbols-outlined badge-icon">verified_user</span>
+                  <span>Authorized</span>
+                  <button type="button" class="btn-clear-shield" (click)="clearPassphrase()" title="Remove authorization">×</button>
+                </div>
+              }
+
+              @if (showPassphraseField()) {
+                <div class="composer-passphrase-field-wrap" (click)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()">
+                  <span class="material-symbols-outlined input-lock-icon">key</span>
+                  <input
+                    [type]="isPassphraseMasked() ? 'password' : 'text'"
+                    class="composer-passphrase-input"
+                    placeholder="Passphrase..."
+                    [ngModel]="unlockPassphrase()"
+                    (ngModelChange)="onPassphraseInputChange($event)"
+                    (click)="$event.stopPropagation()"
+                    (mousedown)="$event.stopPropagation()"
+                    (keydown.enter)="runTask()"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button type="button" class="btn-eye-toggle" (click)="togglePassphraseMask()" title="Show/Hide">
+                    <span class="material-symbols-outlined">{{ isPassphraseMasked() ? 'visibility_off' : 'visibility' }}</span>
+                  </button>
+                </div>
+              }
+
+              <button
+                type="button"
+                class="btn-pass-toggle"
+                [class.active]="showPassphraseField() || isPassphraseArmed()"
+                (click)="togglePassphraseField()"
+                title="Enter secret authorization passphrase (masked with dots)"
+                aria-label="Security passphrase"
+              >
+                <span class="material-symbols-outlined">{{ isPassphraseArmed() ? 'lock' : 'lock_open' }}</span>
+              </button>
+
               @if (taskGoal().length > 0) {
                 <span class="char-count">{{ taskGoal().length }} chars</span>
               }
+
+              <!-- Voice Input (Microphone) Button -->
+              <button
+                type="button"
+                class="btn-voice-input"
+                [class.is-listening]="voiceInput.isListening()"
+                (click)="toggleVoiceInput()"
+                [title]="voiceInput.isListening() ? 'Stop voice recording' : 'Speak task with microphone'"
+                aria-label="Voice input"
+              >
+                <span class="material-symbols-outlined mic-icon">{{ voiceInput.isListening() ? 'graphic_eq' : 'mic' }}</span>
+                @if (voiceInput.isListening()) {
+                  <span class="listening-pulse">Listening...</span>
+                }
+              </button>
 
               <!-- Run Button -->
               <button
                 type="button"
                 class="btn-run-composer"
                 [class.btn-run-pro]="selectedProfile() === 'pro'"
-                [disabled]="!taskGoal().trim() || isSubmitting() || !isReady()"
-                [title]="!isReady() ? (adbProbe()?.summary === 'Device Locked' ? 'Unlock the Android device before running' : 'Complete System Setup before running') : 'Run task'"
+                [disabled]="(!taskGoal().trim() && !isPassphraseArmed()) || isSubmitting() || !isReady()"
+                [title]="!isReady() ? 'Complete System Setup before running' : 'Run task'"
                 (click)="runTask()"
               >
                 @if (isSubmitting()) {
@@ -1987,6 +2049,15 @@
               <div class="section-label">
                 <span class="material-symbols-outlined section-icon">auto_awesome</span>
                 <span class="label-text">Recommended Tasks</span>
+                @if (learnedSkillsCount() > 0) {
+                  <span
+                    class="learned-skills-badge"
+                    style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(99, 102, 241, 0.12); color: #4f46e5; margin-left: 8px; border: 1px solid rgba(99, 102, 241, 0.2);"
+                    [title]="learnedSkillsCount() + ' tasks memorized with action sequences to run instantly without re-exploring'"
+                  >
+                    🧠 {{ learnedSkillsCount() }} Skills Memorized
+                  </span>
+                }
               </div>
 
               <!-- Filter Tabs -->

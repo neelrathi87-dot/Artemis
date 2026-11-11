@@ -21,6 +21,8 @@ import { AgentStreamComponent } from '../../components/agent-stream/agent-stream
 import { ChatInterfaceComponent } from '../../components/chat-interface/chat-interface.component';
 import { FloatingVideoPlayerComponent } from '../../components/floating-video-player/floating-video-player.component';
 import { AgentService } from '../../services/agent.service';
+import { VoiceInputService } from '../../services/voice-input.service';
+import { VoiceSynthesisService } from '../../services/voice-synthesis.service';
 
 @Component({
   selector: 'app-workspace',
@@ -37,6 +39,8 @@ import { AgentService } from '../../services/agent.service';
 })
 export class WorkspaceComponent implements OnInit {
   public agentService = inject(AgentService);
+  public voiceInput = inject(VoiceInputService);
+  public voiceSynthesis = inject(VoiceSynthesisService);
   private zone = inject(NgZone);
   private destroyRef = inject(DestroyRef);
 
@@ -56,6 +60,46 @@ export class WorkspaceComponent implements OnInit {
   public isSubmitting = signal<boolean>(false);
   public errorMessage = signal<string | null>(null);
   public selectedProfile = signal<'flash' | 'pro'>('flash');
+
+  // Security Passphrase State (Masked & Protected)
+  public unlockPassphrase = signal<string>('');
+  public showPassphraseInput = signal<boolean>(false);
+  public isPassphraseMasked = signal<boolean>(true);
+  public isPassphraseFocused = signal<boolean>(false);
+
+  public isPassphraseValid(text: string): boolean {
+    return !!text && text.trim().length > 0;
+  }
+
+  public isPassphraseArmed = computed<boolean>(() => this.isPassphraseValid(this.unlockPassphrase()));
+
+  public togglePassphraseInput(event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    this.showPassphraseInput.update(v => !v);
+  }
+
+  public togglePassphraseMask(event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    this.isPassphraseMasked.update(v => !v);
+  }
+
+  public clearPassphrase(event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    this.unlockPassphrase.set('');
+  }
+
+  public setPassphrase(val: string): void {
+    this.unlockPassphrase.set(val);
+  }
 
   // Expand States (Signals for 0-latency reactivity)
   public isHoveringCard = signal<boolean>(false);
@@ -131,6 +175,9 @@ export class WorkspaceComponent implements OnInit {
     return (
       this.isHoveringCard() ||
       this.isInputFocused() ||
+      this.isPassphraseFocused() ||
+      this.showPassphraseInput() ||
+      this.unlockPassphrase().trim().length > 0 ||
       this.taskInput.trim().length > 0
     );
   });
@@ -154,8 +201,13 @@ export class WorkspaceComponent implements OnInit {
    */
   public onCardClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
-    // Don't steal focus if clicking action buttons or textarea directly
-    if (target.closest('button') || target.tagName.toLowerCase() === 'textarea') {
+    // Don't steal focus if clicking action buttons, inputs, or passphrase wrap directly
+    if (
+      target.closest('button') ||
+      target.closest('.dock-pass-input-wrap') ||
+      target.tagName.toLowerCase() === 'textarea' ||
+      target.tagName.toLowerCase() === 'input'
+    ) {
       return;
     }
     this.focusInput();
@@ -184,12 +236,68 @@ export class WorkspaceComponent implements OnInit {
     }
   }
 
+  private keywordDebounceTimer: any = null;
+
   /**
-   * Auto-resize textarea as user types multi-line tasks
+   * Toggle voice input (microphone) to transcribe spoken instructions
+   */
+  public toggleVoiceInput(event?: MouseEvent): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.voiceInput.isListening()) {
+      this.voiceInput.stopListening();
+      if (this.keywordDebounceTimer) {
+        clearTimeout(this.keywordDebounceTimer);
+        this.keywordDebounceTimer = null;
+      }
+      return;
+    }
+
+    this.voiceInput.startListening(this.taskInput, (fullText) => {
+      // Check if user spoken text matches current entered passphrase
+      const currentPass = this.unlockPassphrase().trim();
+      if (currentPass && fullText.toLowerCase().includes(currentPass.toLowerCase())) {
+        const cleaned = fullText.replace(new RegExp(currentPass, 'gi'), '').trim();
+        this.taskInput = cleaned || 'Unlock phone and go to home screen';
+
+        if (this.keywordDebounceTimer) {
+          clearTimeout(this.keywordDebounceTimer);
+        }
+        this.keywordDebounceTimer = setTimeout(() => {
+          this.voiceInput.stopListening();
+          this.voiceSynthesis.speak('Voice authorization confirmed. Unlocking phone.');
+          this.submitTask();
+          this.keywordDebounceTimer = null;
+        }, 650);
+        return;
+      }
+
+      this.taskInput = fullText;
+      if (this.dockInputRef?.nativeElement) {
+        this.dockInputRef.nativeElement.style.height = 'auto';
+        const newHeight = Math.min(Math.max(this.dockInputRef.nativeElement.scrollHeight, 24), 120);
+        this.dockInputRef.nativeElement.style.height = `${newHeight}px`;
+      }
+    });
+  }
+
+  /**
+   * Auto-resize textarea as user types multi-line tasks & stealth-mask secret words
    */
   public onTextareaInput(event: Event): void {
     const textarea = event.target as HTMLTextAreaElement;
     if (!textarea) return;
+
+    // Check for secret passphrase in real-time typing against current entered passphrase
+    const raw = textarea.value;
+    const currentPass = this.unlockPassphrase().trim();
+    if (currentPass && raw.toLowerCase().includes(currentPass.toLowerCase())) {
+      const cleaned = raw.replace(new RegExp(currentPass, 'gi'), '').trim();
+      textarea.value = cleaned;
+      this.taskInput = cleaned;
+    }
+
     textarea.style.height = 'auto';
     const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 120);
     textarea.style.height = `${newHeight}px`;
@@ -219,7 +327,11 @@ export class WorkspaceComponent implements OnInit {
    * Submit a new task instruction
    */
   public submitTask(): void {
-    const goal = this.taskInput.trim();
+    const hasValidPass = this.isPassphraseValid(this.unlockPassphrase());
+    let goal = this.taskInput.trim();
+    if (!goal && hasValidPass) {
+      goal = 'confirm device is unlocked on home screen';
+    }
     if (!goal || this.isSubmitting()) {
       return;
     }
@@ -232,9 +344,17 @@ export class WorkspaceComponent implements OnInit {
     }
     this.isInputFocused.set(false);
 
-    this.agentService.runTask(goal, this.selectedProfile()).subscribe({
+    this.agentService.runTask(
+      goal,
+      this.selectedProfile(),
+      undefined,
+      undefined,
+      undefined,
+      this.unlockPassphrase().trim() || undefined
+    ).subscribe({
       next: (res) => {
         this.taskInput = '';
+        this.unlockPassphrase.set('');
         if (this.dockInputRef?.nativeElement) {
           this.dockInputRef.nativeElement.style.height = 'auto';
         }
@@ -244,10 +364,12 @@ export class WorkspaceComponent implements OnInit {
       error: (err) => {
         console.error('Failed to submit task:', err);
         this.isSubmitting.set(false);
-        this.errorMessage.set(err.error?.detail || 'The runner is busy. Please wait for current task to finish.');
+        const detail = err.error?.detail || 'The runner is busy. Please wait for current task to finish.';
+        this.errorMessage.set(detail);
+        this.voiceSynthesis.speak(detail);
         setTimeout(() => {
           this.errorMessage.set(null);
-        }, 5000);
+        }, 6000);
       }
     });
   }

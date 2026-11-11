@@ -391,7 +391,7 @@ class StepSummarizerConfig(BaseModel):
         description="Whether to asynchronously summarize historical steps to replace pruned images.",
     )
     model: str = Field(
-        default="gemini-2.5-flash-lite",
+        default="gemini-3.1-flash-lite",
         description="Lightweight model used for background step state summarization.",
     )
     prune_history_xml: bool = Field(
@@ -688,7 +688,7 @@ class MemoryChunkingConfig(BaseModel):
         ),
     )
     model: str = Field(
-        default="gemini-3.8-flash",
+        default="gemini-3.5-flash-lite",
         description="Model used for the chunk-level StepCapsuleLens (bands ①+②).",
     )
     max_chunks: int = Field(

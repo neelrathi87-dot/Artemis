@@ -91,6 +91,13 @@ async def execute_task(
         os.environ["ARTEMIS_SESSION_ID"] = str(effective_sid)
     if not os.environ.get("ARTEMIS_TASK_INGRESS"):
         os.environ["ARTEMIS_TASK_INGRESS"] = "cli"
+
+    try:
+        from artemis.services.whatsapp_manager import whatsapp_locked_chat_manager
+        goal = whatsapp_locked_chat_manager.enrich_goal(goal)
+    except Exception:
+        pass
+
     publish_startup_progress(
         "configuration",
         "Loading the run configuration",

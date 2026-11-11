@@ -154,13 +154,16 @@ class Agent(AgentBase):
 
             # 1. Pre-warm Native SDK client
             client = genai.Client(api_key=key)
+            warmup_model = getattr(settings, "DEFAULT_MODEL", "gemini-3.5-flash-lite")
+            if not warmup_model or warmup_model in ("gemini-3.5-flash", "gemini-3-flash-preview"):
+                warmup_model = "gemini-3.5-flash-lite"
 
             # 2. Pre-warm LangChain client
-            chat = ChatGoogleGenerativeAI(model="gemini-3.8-flash", google_api_key=key)
+            chat = ChatGoogleGenerativeAI(model=warmup_model, google_api_key=key)
 
             # Fire both calls concurrently in the background
             await asyncio.gather(
-                client.aio.models.count_tokens(model="gemini-3.8-flash", contents="ping"),
+                client.aio.models.count_tokens(model=warmup_model, contents="ping"),
                 chat.ainvoke("ping"),
                 return_exceptions=True,
             )

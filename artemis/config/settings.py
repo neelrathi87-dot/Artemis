@@ -113,6 +113,24 @@ class Settings(BaseSettings):
     ADB_HOST: str | None = Field(default=DEFAULT_ADB_HOST)
     ADB_PORT: int | None = Field(default=DEFAULT_ADB_PORT)
     ADB_DEVICE_SERIAL: str | None = None
+    # Device unlock PIN (for secure lock screens)
+    ARTEMIS_DEVICE_PIN: str | None = Field(
+        default=None,
+        description=(
+            "PIN code used to unlock the device screen before tasks. "
+            "Set this when the device has a PIN lock screen. "
+            "Leave unset for devices with no lock or swipe-only lock."
+        ),
+    )
+    # Secret word or passphrase required to authorize unlocking a locked device
+    ARTEMIS_UNLOCK_PASSPHRASE: str | None = Field(
+        default=None,
+        description=(
+            "Secret passphrase required to authorize unlocking a locked device. "
+            "When set, tasks submitted while the phone is locked will only unlock "
+            "if the user includes this secret word in their instruction or prompt."
+        ),
+    )
     # UI hierarchy backend: "auto" = Accessibility Helper with UIAutomator2
     # fallback, "helper" = helper only, "uiautomator" = UIAutomator2 only.
     ARTEMIS_HIERARCHY_BACKEND: str = Field(default="auto")

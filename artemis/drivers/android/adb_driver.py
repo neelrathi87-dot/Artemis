@@ -121,7 +121,7 @@ class AndroidAdbDriver(BaseDeviceDriver):
     async def get_screen_data(self, skip_settling: bool = False) -> ScreenData:
         """Captures screenshot and XML hierarchy concurrently."""
         if not skip_settling:
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.05)
 
         # 1. Capture raw screenshot
         screenshot_bytes: bytes = b""

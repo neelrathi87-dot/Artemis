@@ -15,9 +15,12 @@
 import asyncio
 from contextlib import suppress
 import json
+import os
+import re
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from artemis.config import settings
 from artemis.core.diagnostics import readiness_engine
 from artemis.runtime import DeviceExecutionLock, device_pool
 
@@ -37,6 +40,8 @@ except ImportError:
     from apps.admin_console.services.model_service import model_service
     from apps.admin_console.services.task_preset_catalog import task_recommendation_engine
     from apps.admin_console.services.task_queue_service import task_queue_service
+
+from artemis.services.whatsapp_manager import whatsapp_locked_chat_manager
 
 
 router = APIRouter(tags=["tasks"])
@@ -66,13 +71,58 @@ async def get_task_catalog():
     }
 
 
+@router.get("/api/system/security")
+async def get_security_status():
+    """Return whether PIN auto-unlock or passphrase protection is active."""
+    pin = getattr(settings, "ARTEMIS_DEVICE_PIN", None) or os.environ.get("ARTEMIS_DEVICE_PIN")
+    required_passphrase = getattr(settings, "ARTEMIS_UNLOCK_PASSPHRASE", None) or os.environ.get("ARTEMIS_UNLOCK_PASSPHRASE")
+    return {
+        "pin_configured": bool(pin),
+        "passphrase_required": bool(required_passphrase),
+    }
+
+
+@router.get("/api/skills")
+async def get_learned_skills():
+    """Retrieve all self-learned skills and execution recipes."""
+    from artemis.memory.skill_store import learned_skill_store
+    skills = learned_skill_store.get_all_skills()
+    return {"skills": skills, "count": len(skills)}
+
+
+@router.get("/api/whatsapp/locked-chats")
+async def get_whatsapp_locked_chats():
+    """Retrieve WhatsApp locked chat settings and registered contacts."""
+    return {
+        "password": whatsapp_locked_chat_manager.password,
+        "contacts": whatsapp_locked_chat_manager.get_locked_contacts(),
+    }
+
+
+@router.post("/api/whatsapp/locked-chats")
+async def update_whatsapp_locked_chats(request: Request):
+    """Manage WhatsApp locked chat password and registered locked contacts."""
+    body = await request.json()
+    if isinstance(body, dict):
+        if "password" in body and body["password"]:
+            whatsapp_locked_chat_manager.password = str(body["password"]).strip()
+        if "add_contact" in body and body["add_contact"]:
+            whatsapp_locked_chat_manager.add_locked_contact(str(body["add_contact"]))
+        if "remove_contact" in body and body["remove_contact"]:
+            whatsapp_locked_chat_manager.remove_locked_contact(str(body["remove_contact"]))
+    return {
+        "password": whatsapp_locked_chat_manager.password,
+        "contacts": whatsapp_locked_chat_manager.get_locked_contacts(),
+    }
+
+
 @router.post("/api/run")
 async def run_task(request: RunRequest):
     incoming_goals = []
     if request.goals:
-        incoming_goals = request.goals
+        incoming_goals = [whatsapp_locked_chat_manager.enrich_goal(g) for g in request.goals if g]
     elif request.goal:
-        incoming_goals = [request.goal]
+        incoming_goals = [whatsapp_locked_chat_manager.enrich_goal(request.goal)]
 
     if not incoming_goals:
         raise HTTPException(
@@ -142,7 +192,83 @@ async def run_task(request: RunRequest):
     # device); the verified serial is bound below.
     target_serial = request.device_serial
     device_probe = await readiness_engine.run_device_submission_probe(target_serial=target_serial)
-    if device_probe and device_probe.summary in {"Device Locked", "Lock State Unknown"}:
+    pin = getattr(settings, "ARTEMIS_DEVICE_PIN", None) or os.environ.get("ARTEMIS_DEVICE_PIN")
+    required_passphrase = getattr(settings, "ARTEMIS_UNLOCK_PASSPHRASE", None) or os.environ.get("ARTEMIS_UNLOCK_PASSPHRASE")
+
+    # Resolve active target serial
+    active_serial = (
+        ((device_probe.metadata or {}).get("active_device") or {}).get("serial")
+        or target_serial
+        or getattr(settings, "ADB_DEVICE_SERIAL", None)
+        or os.environ.get("ADB_DEVICE_SERIAL")
+        or ""
+    )
+
+    # Check live lock state directly on the device
+    from artemis.runtime.awake_service import _is_device_locked, _unlock_secure_keyguard
+    is_locked = False
+    if active_serial:
+        is_locked = await asyncio.to_thread(_is_device_locked, active_serial)
+
+    # If the device is currently locked or screen is off
+    if is_locked:
+        if required_passphrase and pin:
+            norm_pass = re.sub(r"[^a-zA-Z0-9]", "", required_passphrase).lower()
+            def _check_passphrase(text: str) -> bool:
+                if not text or not norm_pass:
+                    return False
+                nt = re.sub(r"[^a-zA-Z0-9]", "", text).lower()
+                return norm_pass in nt
+
+            provided_in_field = _check_passphrase(request.unlock_passphrase) if request.unlock_passphrase else False
+            matched_goal_idx = -1
+            for idx, g in enumerate(incoming_goals):
+                if _check_passphrase(g):
+                    matched_goal_idx = idx
+                    break
+
+            if not provided_in_field and matched_goal_idx == -1:
+                # Passphrase missing! Device is locked: strictly refuse to unlock or touch the phone.
+                raise HTTPException(
+                    status_code=403,
+                    detail="Security Verification: Android device is locked. Authorization required to unlock.",
+                )
+
+            # Passphrase verified! Strip secret word cleanly from incoming goals
+            if matched_goal_idx != -1:
+                chars = [re.escape(c) for c in required_passphrase.strip() if c.isalnum()]
+                spaced_pattern = r"\b" + r"\s*".join(chars) + r"\b" if chars else ""
+                direct_pattern = rf"\b{re.escape(required_passphrase.strip())}\b"
+                full_pattern = f"({direct_pattern}|{spaced_pattern})" if spaced_pattern else direct_pattern
+                cleaned = re.sub(full_pattern, "", incoming_goals[matched_goal_idx], flags=re.IGNORECASE)
+                cleaned = re.sub(re.escape(required_passphrase), "", cleaned, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(r"^[\s,.:;!?-]+|[\s,.:;!?-]+$", "", cleaned).strip()
+                if cleaned:
+                    incoming_goals[matched_goal_idx] = cleaned
+                else:
+                    incoming_goals[matched_goal_idx] = "confirm device is unlocked on home screen"
+
+            # Auto-unlock with verified authorization (force=True)
+            await asyncio.to_thread(_unlock_secure_keyguard, active_serial, force=True)
+            await asyncio.sleep(0.5)
+
+        elif not pin:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Android device {active_serial} is locked. Unlock it and enter the home screen before running a task."
+            )
+        else:
+            # PIN set, but no passphrase configured: auto-unlock
+            await asyncio.to_thread(_unlock_secure_keyguard, active_serial, force=True)
+            await asyncio.sleep(0.5)
+
+    # If user goal was purely an unlock request, normalize it
+    for idx, g in enumerate(incoming_goals):
+        if re.match(r"^(unlock|wake up|turn on)(\s+(my|the))?\s+(device|phone|screen)?$", g.strip(), re.I):
+            incoming_goals[idx] = "confirm device is unlocked on home screen"
+
+    # Only raise 409 if device is locked and NO auto-unlock PIN is configured
+    if device_probe and device_probe.summary in {"Device Locked", "Lock State Unknown"} and not pin:
         locked_serial = (
             device_probe.metadata.get("active_device", {}).get("serial") or target_serial or ""
         )

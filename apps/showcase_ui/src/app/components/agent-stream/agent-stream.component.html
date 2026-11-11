@@ -491,7 +491,7 @@ limitations under the License.
         >
         @if (agentService.isCurrentSessionRunning()) {
           <span class="material-symbols-outlined video-icon">
-            videocam
+            {{ agentService.currentSessionRecordingStatus() === 'unavailable' ? 'sensors' : 'videocam' }}
           </span>
         }
         @if (!agentService.isCurrentSessionRunning() && agentService.currentSessionRecordingStatus() === 'processing') {
@@ -520,7 +520,7 @@ limitations under the License.
           </span>
         }
         @if (agentService.isCurrentSessionRunning()) {
-          <span class="btn-text">Recording...</span>
+          <span class="btn-text">{{ agentService.currentSessionRecordingStatus() === 'unavailable' ? 'Live Task' : 'Recording...' }}</span>
         }
         @if (!agentService.isCurrentSessionRunning() && agentService.currentSessionRecordingStatus() === 'processing') {
           <span class="btn-text">Preparing...</span>
@@ -538,7 +538,7 @@ limitations under the License.
           <span class="btn-text">Screen Recording</span>
         }
         @if (agentService.isCurrentSessionRunning()) {
-          <span class="video-pulse-dot red"></span>
+          <span class="video-pulse-dot" [class.red]="agentService.currentSessionRecordingStatus() !== 'unavailable'" [class.blue]="agentService.currentSessionRecordingStatus() === 'unavailable'"></span>
         }
         @if (!agentService.isCurrentSessionRunning() && !agentService.currentSessionVideoUrl() && agentService.hasCurrentSessionStepFrames()) {
           <span class="steps-count-badge">

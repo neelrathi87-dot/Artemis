@@ -872,7 +872,7 @@ invoke_llm_with_timeout_message = LLMWaitNotice(
 
 # Backward compatible factory functions delegating to ModelFactory
 def get_google_llm(
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-3.5-flash-lite",
     temperature: float | None = None,
     timeout: float | None = None,
     thinking_budget: int | None = None,

@@ -156,7 +156,24 @@ class AdbSession:
         self.endpoint.apply_to_environment(environment)
         return environment
 
+    def _ensure_local_daemon(self) -> None:
+        if not self.endpoint.is_local_default or not self.adb_path:
+            return
+        clean_env = os.environ.copy()
+        clean_env.pop("ADB_SERVER_SOCKET", None)
+        try:
+            subprocess.run(
+                [self.adb_path, "start-server"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+                env=clean_env,
+            )
+        except Exception:
+            pass
+
     def run(self, arguments: Sequence[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        self._ensure_local_daemon()
         kwargs.setdefault("env", self.environment())
         return subprocess.run(self.command(arguments), **kwargs)
 
@@ -170,4 +187,6 @@ def current_adb_endpoint() -> AdbEndpoint:
 
 def adb_command(arguments: Sequence[str]) -> list[str]:
     """Resolve the ADB binary and add the configured server's host and port."""
-    return AdbSession(current_adb_endpoint()).command(arguments)
+    session = AdbSession(current_adb_endpoint())
+    session._ensure_local_daemon()
+    return session.command(arguments)

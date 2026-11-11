@@ -875,6 +875,12 @@ class TaskQueueService:
                 new_status = await cls._persist_terminal_session_status(
                     sess_id, returncode, manual_stop
                 )
+                if new_status == "completed" and goal:
+                    try:
+                        from artemis.memory.skill_store import learned_skill_store
+                        learned_skill_store.learn_from_session(str(sess_id), goal)
+                    except Exception as learn_err:
+                        logger.debug(f"[QueueWorker] Could not record learned skill: {learn_err}")
                 await cls._recover_or_fail_recording(sess_id)
                 cls._announce_session_end(task_item, sess_id, goal, new_status, manual_stop)
 

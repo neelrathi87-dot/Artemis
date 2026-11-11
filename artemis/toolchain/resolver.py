@@ -125,24 +125,32 @@ class ToolchainResolver:
             program_files = os.getenv("ProgramFiles", "C:\\Program Files")
             program_data = os.getenv("ProgramData", "C:\\ProgramData")
 
+            winget_pkgs = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages" if local_appdata else None
+
             if desc.name == "adb":
                 if local_appdata:
                     candidates.append(
                         Path(local_appdata) / "Android" / "Sdk" / "platform-tools" / "adb.exe"
                     )
                 candidates.append(Path(program_files) / "Android" / "platform-tools" / "adb.exe")
+                if winget_pkgs and winget_pkgs.is_dir():
+                    candidates.extend(winget_pkgs.glob("Google.PlatformTools*/**/adb.exe"))
             elif desc.name == "scrcpy":
                 candidates.append(Path(program_data) / "chocolatey" / "bin" / "scrcpy.exe")
                 if local_appdata:
                     candidates.append(
                         Path(local_appdata) / "Microsoft" / "WinGet" / "Links" / "scrcpy.exe"
                     )
+                if winget_pkgs and winget_pkgs.is_dir():
+                    candidates.extend(winget_pkgs.glob("Genymobile.scrcpy*/**/scrcpy.exe"))
             elif desc.name == "ffmpeg":
                 candidates.append(Path(program_data) / "chocolatey" / "bin" / "ffmpeg.exe")
                 if local_appdata:
                     candidates.append(
                         Path(local_appdata) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe"
                     )
+                if winget_pkgs and winget_pkgs.is_dir():
+                    candidates.extend(winget_pkgs.glob("Gyan.FFmpeg*/**/ffmpeg.exe"))
 
         elif platform.os_type == OSType.MACOS:
             if desc.name == "adb":

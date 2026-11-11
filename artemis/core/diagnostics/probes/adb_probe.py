@@ -31,6 +31,7 @@ from artemis.core.diagnostics.schema import (
     ProbeResult,
     ProbeStatus,
 )
+from artemis.config import settings
 from artemis.platform import OSType, platform
 from artemis.toolchain import toolchain
 from third_party.mobile_use.utils.logger import get_logger
@@ -69,6 +70,41 @@ class AdbDeviceProbe(BaseProbe):
     def invalidate_enrichment_cache(self) -> None:
         """Refresh static device metadata on an explicit full re-check."""
         self._device_enrichment_cache.clear()
+
+    @staticmethod
+    def _adb_env() -> dict[str, str]:
+        """Environment for ADB subprocess execution.
+
+        If connecting to the local default ADB server (127.0.0.1 / localhost:5037),
+        strip ADB_SERVER_SOCKET so the standard ADB binary can connect locally and
+        auto-spawn the local daemon if not already running, instead of failing with
+        '* cannot start server on remote host'.
+        """
+        env = os.environ.copy()
+        socket_val = env.get("ADB_SERVER_SOCKET", "")
+        if socket_val in (
+            "tcp:127.0.0.1:5037",
+            "tcp:localhost:5037",
+            "tcp:[::1]:5037",
+            "tcp:0.0.0.0:5037",
+        ):
+            env.pop("ADB_SERVER_SOCKET", None)
+        return env
+
+    async def _ensure_local_server(self, adb_path: str) -> None:
+        """Ensure local ADB daemon is alive before running discovery probes."""
+        env = self._adb_env()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                adb_path,
+                "start-server",
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=4.0)
+        except Exception as exc:
+            logger.debug(f"Failed to start local ADB server: {exc}")
 
     def _locate_adb(self) -> str | None:
         """Find the adb binary path from ToolchainResolver."""
@@ -121,6 +157,7 @@ class AdbDeviceProbe(BaseProbe):
             proc = await asyncio.create_subprocess_exec(
                 adb_path,
                 "version",
+                env=self._adb_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -209,6 +246,7 @@ class AdbDeviceProbe(BaseProbe):
                 "shell",
                 "dumpsys",
                 *service_args,
+                env=self._adb_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -294,6 +332,7 @@ class AdbDeviceProbe(BaseProbe):
             serial,
             "shell",
             *args,
+            env=AdbDeviceProbe._adb_env(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -323,6 +362,7 @@ class AdbDeviceProbe(BaseProbe):
                 adb_path,
                 "devices",
                 "-l",
+                env=self._adb_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -336,6 +376,31 @@ class AdbDeviceProbe(BaseProbe):
                 parts = raw_line.strip().split()
                 if len(parts) >= 2:
                     states.append((parts[0], parts[1]))
+            if not any(state == "device" for _, state in states):
+                wifi_target = os.environ.get("ADB_WIFI_DEVICE") or os.environ.get("ADB_DEVICE_SERIAL")
+                if wifi_target and ":" in wifi_target:
+                    try:
+                        c_proc = await asyncio.create_subprocess_exec(
+                            adb_path, "connect", wifi_target,
+                            env=self._adb_env(),
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        await asyncio.wait_for(c_proc.communicate(), timeout=2.0)
+                        p2 = await asyncio.create_subprocess_exec(
+                            adb_path, "devices", "-l",
+                            env=self._adb_env(),
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        out2, _ = await asyncio.wait_for(p2.communicate(), timeout=timeout_seconds)
+                        states = []
+                        for raw_line in out2.decode(errors="replace").splitlines()[1:]:
+                            parts = raw_line.strip().split()
+                            if len(parts) >= 2:
+                                states.append((parts[0], parts[1]))
+                    except Exception:
+                        pass
             return states
         except TimeoutError:
             if proc is not None:
@@ -372,6 +437,7 @@ class AdbDeviceProbe(BaseProbe):
                 metadata={"installed": False, "submission_probe": True},
             )
 
+        await self._ensure_local_server(adb_path)
         device_states = await self._get_device_states(adb_path)
         if device_states is None:
             return ProbeResult(
@@ -444,21 +510,27 @@ class AdbDeviceProbe(BaseProbe):
                 elif candidate_locked is None and is_locked is True:
                     serial = candidate
                     is_locked = None
-        summary = (
-            "Device Locked"
-            if is_locked is True
-            else "Connected"
-            if is_locked is False
-            else "Lock State Unknown"
-        )
-        status = ProbeStatus.PASS if is_locked is False else ProbeStatus.WARN
-        description = (
-            f"ADB connected to {serial}. Ready for task submission."
-            if is_locked is False
-            else f"Android device {serial} is locked. Unlock it before running a task."
-            if is_locked is True
-            else f"Android lock-screen state could not be verified for {serial}."
-        )
+        pin = getattr(settings, "ARTEMIS_DEVICE_PIN", None) or os.environ.get("ARTEMIS_DEVICE_PIN")
+        if is_locked is not False and pin:
+            summary = "Connected (Auto-Unlock)"
+            status = ProbeStatus.PASS
+            description = f"ADB connected to {serial}. Auto-unlock PIN configured."
+        else:
+            summary = (
+                "Device Locked"
+                if is_locked is True
+                else "Connected"
+                if is_locked is False
+                else "Lock State Unknown"
+            )
+            status = ProbeStatus.PASS if is_locked is False else ProbeStatus.WARN
+            description = (
+                f"ADB connected to {serial}. Ready for task submission."
+                if is_locked is False
+                else f"Android device {serial} is locked. Unlock it before running a task."
+                if is_locked is True
+                else f"Android lock-screen state could not be verified for {serial}."
+            )
         return ProbeResult(
             id=self.probe_id,
             category=self.category,
@@ -482,6 +554,7 @@ class AdbDeviceProbe(BaseProbe):
                 adb_path,
                 "devices",
                 "-l",
+                env=self._adb_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -494,6 +567,27 @@ class AdbDeviceProbe(BaseProbe):
                 for line in stdout.decode(errors="replace").splitlines()
                 if line.strip()
             ]
+            if len(lines) <= 1:
+                wifi_target = os.environ.get("ADB_WIFI_DEVICE") or os.environ.get("ADB_DEVICE_SERIAL")
+                if wifi_target and ":" in wifi_target:
+                    try:
+                        c_proc = await asyncio.create_subprocess_exec(
+                            adb_path, "connect", wifi_target,
+                            env=self._adb_env(),
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        await asyncio.wait_for(c_proc.communicate(), timeout=2.0)
+                        p2 = await asyncio.create_subprocess_exec(
+                            adb_path, "devices", "-l",
+                            env=self._adb_env(),
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        out2, _ = await asyncio.wait_for(p2.communicate(), timeout=2.0)
+                        lines = [l.strip() for l in out2.decode(errors="replace").splitlines() if l.strip()]
+                    except Exception:
+                        pass
             for line in lines[1:]:  # Skip "List of devices attached"
                 parts = line.split()
                 if len(parts) < 2:
@@ -652,6 +746,7 @@ class AdbDeviceProbe(BaseProbe):
                 actions=actions,
             )
 
+        await self._ensure_local_server(adb_path)
         adb_ver = await self._get_adb_version(adb_path)
         devices = await self._parse_adb_devices(adb_path)
 
@@ -812,23 +907,28 @@ class AdbDeviceProbe(BaseProbe):
                 )
 
         # 4. Ready device available
+        target_serial = self._target_serial or getattr(settings, "ADB_DEVICE_SERIAL", None) or os.environ.get("ADB_DEVICE_SERIAL")
         preferred_dev = None
-        if self._target_serial:
+        if target_serial:
             preferred_dev = next(
-                (d for d in ready_devices if d.serial == self._target_serial), None
+                (d for d in ready_devices if d.serial == target_serial), None
             )
 
-        if preferred_dev and preferred_dev.is_locked is False:
+        if preferred_dev:
             active_dev = preferred_dev
         else:
-            # Prefer a confirmed unlocked ready device
-            unlocked_dev = next((d for d in ready_devices if d.is_locked is False), None)
+            # Prioritize real physical devices over emulators
+            physical_devices = [d for d in ready_devices if not d.is_emulator]
+            pool = physical_devices if physical_devices else ready_devices
+
+            # Prefer a confirmed unlocked ready device from the prioritized pool
+            unlocked_dev = next((d for d in pool if d.is_locked is False), None)
             if unlocked_dev:
                 active_dev = unlocked_dev
             else:
                 # If no confirmed unlocked device, prefer undetermined lock state over confirmed locked
-                unknown_dev = next((d for d in ready_devices if d.is_locked is None), None)
-                active_dev = preferred_dev or unknown_dev or ready_devices[0]
+                unknown_dev = next((d for d in pool if d.is_locked is None), None)
+                active_dev = unknown_dev or pool[0]
 
         display_name = active_dev.model or active_dev.serial
         if active_dev.screen_resolution:
@@ -839,6 +939,28 @@ class AdbDeviceProbe(BaseProbe):
 
         if active_dev.is_locked is not False:
             is_locked = active_dev.is_locked is True
+            pin = getattr(settings, "ARTEMIS_DEVICE_PIN", None) or os.environ.get("ARTEMIS_DEVICE_PIN")
+            if pin:
+                return ProbeResult(
+                    id=self.probe_id,
+                    category=self.category,
+                    title="Device / Emulator Connected",
+                    status=ProbeStatus.PASS,
+                    is_blocker=self.is_blocker,
+                    summary="Connected (Auto-Unlock Ready)",
+                    description=(
+                        f"ADB connected to {display_name}. Auto-unlock PIN is configured "
+                        "and will unlock on task launch."
+                    ),
+                    metadata=metadata,
+                    actions=[
+                        ProbeAction(
+                            action_type="hint",
+                            label="Auto-Unlock Active",
+                            payload=f"Serial: {active_dev.serial} | Device PIN auto-unlock enabled.",
+                        )
+                    ],
+                )
             summary = "Device Locked" if is_locked else "Lock State Unknown"
             description = (
                 f"ADB connected to {display_name}, but the Android lock screen is active. "

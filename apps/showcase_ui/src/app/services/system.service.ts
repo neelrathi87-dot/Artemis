@@ -83,9 +83,16 @@ export class SystemService {
     return llm?.status === 'pass';
   });
 
+  public isDeviceLocked = computed(() => {
+    const summary = this.adbProbe()?.summary;
+    return summary === 'Device Locked' || summary === 'Lock State Unknown';
+  });
+
   public isDeviceReady = computed(() => {
     const adb = this.adbProbe();
-    return adb?.status === 'pass';
+    if (!adb) return false;
+    // Pass if fully ready OR if device is connected but locked (Artemis auto-unlocks with PIN/word lock)
+    return adb.status === 'pass' || (adb.status === 'warn' && this.isDeviceLocked());
   });
 
   // Step-level counting matching the 3-step onboarding guide

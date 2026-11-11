@@ -1,0 +1,6 @@
+{
+  "password": "YOUR_SECRET_CODE",
+  "locked_contacts": [
+    "example_contact"
+  ]
+}
