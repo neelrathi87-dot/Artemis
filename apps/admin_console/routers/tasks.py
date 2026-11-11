@@ -179,6 +179,17 @@ async def upload_task_files(files: list[UploadFile] = File(...)):
                 is_text = True
             except Exception:
                 pass
+        elif ext == ".pdf":
+            try:
+                import io
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(content_bytes))
+                pages_text = [page.extract_text() or "" for page in reader.pages]
+                text_content = "\n".join(pages_text).strip()
+                if text_content:
+                    is_text = True
+            except Exception as e:
+                logger.warning(f"Failed to extract PDF text from {safe_name}: {e}")
         elif len(content_bytes) < 1024 * 1024:  # under 1MB fallback
             try:
                 text_content = content_bytes.decode("utf-8")
@@ -435,6 +446,52 @@ async def run_task(request: RunRequest):
             attachment_blocks.append(block)
 
         if attachment_blocks:
+            # Check if any attachment contains contacts and generate an auto-synced .vcf
+            try:
+                from artemis.services.contacts_helper import (
+                    extract_contacts_from_text,
+                    generate_vcf,
+                    extract_prefix_from_goal,
+                )
+
+                all_text = "\n".join(att.get("content", "") for att in request.attachments if isinstance(att, dict))
+                contacts = extract_contacts_from_text(all_text)
+                if contacts:
+                    goal_text = request.goal or (request.goals[0] if request.goals else "")
+                    prefix = extract_prefix_from_goal(goal_text)
+                    vcf_text = generate_vcf(contacts, prefix=prefix)
+
+                    vcf_path = UPLOADS_DIR / "contacts.vcf"
+                    vcf_path.write_text(vcf_text, encoding="utf-8")
+
+                    phone_vcf_dest = "/sdcard/Download/contacts.vcf"
+                    effective_serial = target_serial or active_serial
+                    pushed_vcf = False
+                    if effective_serial:
+                        try:
+                            from artemis.runtime.awake_service import _run_awake_adb_command
+                            res = _run_awake_adb_command(
+                                effective_serial,
+                                ["push", str(vcf_path), phone_vcf_dest],
+                                "push auto-generated contacts.vcf to device",
+                            )
+                            if res and res.returncode == 0:
+                                pushed_vcf = True
+                        except Exception:
+                            pass
+
+                    vcf_block = (
+                        f"📇 [Auto-Prepared vCard for Instant Phone Import]:\n"
+                        f"- Total Contacts Extracted: {len(contacts)}\n"
+                        f"- Prefix Applied: '{prefix}'\n"
+                    )
+                    if pushed_vcf:
+                        vcf_block += f"- Ready on phone storage at: {phone_vcf_dest}\n"
+                    vcf_block += "- To import all contacts in 1 step: Open Contacts app -> Manage contacts -> Import contacts.\n"
+                    attachment_blocks.insert(0, vcf_block)
+            except Exception as e:
+                logger.warning(f"Failed to auto-generate vCard from attachments: {e}")
+
             attached_context = (
                 "\n\n"
                 + "=" * 50

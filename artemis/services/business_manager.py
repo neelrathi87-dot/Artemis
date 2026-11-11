@@ -354,14 +354,51 @@ class PersonaManager:
             f"{'=' * 60}\n"
         )
 
+    def is_contacts_workflow_intent(self, goal: str) -> bool:
+        """Detect whether a task goal involves saving contacts or creating a broadcast list."""
+        if not goal:
+            return False
+        pattern = r"\b(save\s+all\s+contacts?|save\s+contacts?|contacts?\s+to\s+(?:my\s+)?phone|import\s+contacts?|broadcast\s+list|create\s+(?:a\s+)?broadcast)\b"
+        return bool(re.search(pattern, goal, re.IGNORECASE))
+
+    def build_contacts_workflow_prompt(self) -> str:
+        """Construct strict execution instructions for saving contacts and WhatsApp broadcast lists."""
+        return (
+            f"\n\n{'=' * 60}\n"
+            f"[PHONE CONTACTS & WHATSAPP BROADCAST EXECUTION DIRECTIVE]:\n"
+            f"You are tasked with saving contacts and/or creating a WhatsApp broadcast list:\n\n"
+            f"1. 🚫 NEVER OPEN THE 'FILES' OR 'FILE EXPLORER' (MY FILES) APP ON THE PHONE:\n"
+            f"   - Contacts CANNOT be imported or saved from a file manager / Files app!\n"
+            f"   - Do NOT search for or open 'Files', 'My Files', or 'File Explorer'.\n\n"
+            f"2. 📇 HOW TO SAVE CONTACTS TO THE PHONE:\n"
+            f"   - Open the Contacts app directly (Search 'Contacts' in app drawer or launch `com.samsung.android.app.contacts` / `com.google.android.contacts`).\n"
+            f"   - If a .vcf file is available on phone storage (/sdcard/Download/contacts.vcf):\n"
+            f"     * In Contacts app, open the Menu (top left or 3-lines/dots) -> Tap 'Manage contacts' -> Tap 'Import contacts' -> Choose 'Phone storage' -> Select the contacts file -> Tap Import.\n"
+            f"   - NEVER attempt to manually type 100 contacts one-by-one by hand! Always use the bulk import feature.\n\n"
+            f"3. 📢 HOW TO CREATE THE WHATSAPP BROADCAST LIST:\n"
+            f"   - Open WhatsApp -> Tap 3-dots menu (top right) -> 'New broadcast'.\n"
+            f"   - Tap the Search icon -> Type the contact prefix (e.g. 'Client_').\n"
+            f"   - WhatsApp will filter the list to only the matching contacts. Tap each contact to select them.\n"
+            f"   - Tap the green checkmark (✔) to create the broadcast list.\n"
+            f"   - Tap the list header or 3-dots -> 'Change broadcast list name' -> Enter the requested name.\n"
+            f"{'=' * 60}\n"
+        )
+
     def enrich_task_goal(self, goal: str, persona: str | None = None) -> str:
-        """Enrich a task goal based on requested or detected persona (business vs casual)."""
+        """Enrich a task goal based on requested or detected persona (business vs casual) and workflow directives."""
         if not goal:
             return goal
 
         # Idempotency guard: do not double-enrich
         if "[BUSINESS CUSTOMER ASSISTANT INSTRUCTIONS" in goal or "[CASUAL CHAT PERSONA INSTRUCTIONS" in goal:
             return goal
+
+        enriched_goal = goal.strip()
+
+        # Contact and Broadcast Workflow Directive
+        if self.is_contacts_workflow_intent(goal) and "[PHONE CONTACTS & WHATSAPP BROADCAST EXECUTION DIRECTIVE]" not in goal:
+            enriched_goal += self.build_contacts_workflow_prompt()
+            logger.info("Enriched task goal with Contacts & WhatsApp Broadcast execution directive.")
 
         # 1. Check explicit persona parameter or tags
         persona_lower = (persona or "").strip().lower()
@@ -370,28 +407,28 @@ class PersonaManager:
             if self.is_casual_enabled():
                 guide = self.build_casual_guide_prompt()
                 logger.info("Enriched task goal with CASUAL CHAT persona guidelines.")
-                return f"{goal.strip()}{guide}"
+                return f"{enriched_goal}{guide}"
 
         if persona_lower == "business" or self.is_explicit_business_mode(goal):
             if self.is_business_enabled():
                 guide = self.build_business_guide_prompt()
                 logger.info(f"Enriched task goal with BUSINESS guidelines for '{self._business_config.get('business_name')}'.")
-                return f"{goal.strip()}{guide}"
+                return f"{enriched_goal}{guide}"
 
         # 2. Check intent keywords (business priority if customer-related)
         if self.is_customer_chat_intent(goal):
             if self.is_business_enabled():
                 guide = self.build_business_guide_prompt()
                 logger.info(f"Enriched task goal with BUSINESS guidelines for '{self._business_config.get('business_name')}'.")
-                return f"{goal.strip()}{guide}"
+                return f"{enriched_goal}{guide}"
 
         if self.is_casual_chat_intent(goal):
             if self.is_casual_enabled():
                 guide = self.build_casual_guide_prompt()
                 logger.info("Enriched task goal with CASUAL CHAT persona guidelines.")
-                return f"{goal.strip()}{guide}"
+                return f"{enriched_goal}{guide}"
 
-        return goal
+        return enriched_goal
 
 
 # Singleton instance
