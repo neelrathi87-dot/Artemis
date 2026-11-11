@@ -133,6 +133,21 @@ async def update_business_config(request: Request):
     raise HTTPException(status_code=400, detail="Invalid JSON body")
 
 
+@router.get("/api/casual/config")
+async def get_casual_config():
+    """Retrieve current casual chat persona configuration."""
+    return business_assistant_manager.get_casual_config()
+
+
+@router.post("/api/casual/config")
+async def update_casual_config(request: Request):
+    """Update and persist casual chat persona configuration."""
+    body = await request.json()
+    if isinstance(body, dict):
+        return business_assistant_manager.update_casual_config(body)
+    raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+
 UPLOADS_DIR = Path(WORKSPACE_ROOT) / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -198,13 +213,19 @@ async def run_task(request: RunRequest):
     incoming_goals = []
     if request.goals:
         incoming_goals = [
-            business_assistant_manager.enrich_task_goal(whatsapp_locked_chat_manager.enrich_goal(g))
+            business_assistant_manager.enrich_task_goal(
+                whatsapp_locked_chat_manager.enrich_goal(g),
+                persona=request.chat_persona,
+            )
             for g in request.goals
             if g
         ]
     elif request.goal:
         incoming_goals = [
-            business_assistant_manager.enrich_task_goal(whatsapp_locked_chat_manager.enrich_goal(request.goal))
+            business_assistant_manager.enrich_task_goal(
+                whatsapp_locked_chat_manager.enrich_goal(request.goal),
+                persona=request.chat_persona,
+            )
         ]
 
     if not incoming_goals:

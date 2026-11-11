@@ -34,6 +34,7 @@ class RunRequest(BaseModel):
     conversation_id: str | None = None
     unlock_passphrase: str | None = None
     attachments: list[dict] | None = None
+    chat_persona: str | None = None
 
 
 class ReplayRequest(BaseModel):

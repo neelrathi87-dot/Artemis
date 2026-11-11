@@ -286,6 +286,16 @@ def mobile_run_task(
     # plain tool error rather than a failed trace on disk.
     verification_level, explorer_mode = _normalize_pro_tuning(verification_level, explorer_mode)
 
+    # 0c. Enrich task goal with chat persona (business vs casual) and WhatsApp safeguards
+    try:
+        from artemis.services.business_manager import business_assistant_manager
+        from artemis.services.whatsapp_manager import whatsapp_locked_chat_manager
+        task_desc = business_assistant_manager.enrich_task_goal(
+            whatsapp_locked_chat_manager.enrich_goal(task_desc)
+        )
+    except Exception:
+        pass
+
     # 1. Generate a unique trace_id
     trace_id = str(uuid.uuid4())
 
