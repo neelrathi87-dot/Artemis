@@ -8,7 +8,7 @@
   // ------------------------------------------------------------------------------
   "default": {
     "provider": "google",
-    "model": "gemini-3.5-flash-lite",
+    "model": "gemini-3.5-flash",
     "thinking_level": "low",
     "fallback": {
       "provider": "google",
@@ -23,13 +23,13 @@
     "presets": {
     "gemini-flagship": {
       "provider": "google",
-      "model": "gemini-3.5-flash-lite",
+      "model": "gemini-3.5-flash",
       "thinking_level": "low",
       "fallback": { "provider": "google", "model": "gemini-3.1-flash-lite" }
     },
     "gemini-flash": {
       "provider": "google",
-      "model": "gemini-3.5-flash-lite",
+      "model": "gemini-3.5-flash",
       "fallback": { "provider": "google", "model": "gemini-3.1-flash-lite" }
     },
     "openai-gpt4o": {
@@ -96,7 +96,7 @@
 
     // 🔽 Hopper: Fast lightweight package name locator
     "hopper": {
-      "model": "gemini-3.5-flash-lite",
+      "model": "gemini-3.5-flash",
       "fallback": {
         "provider": "google",
         "model": "gemini-3.1-flash-lite"
