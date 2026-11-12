@@ -43,6 +43,7 @@ from artemis.config import (
 from artemis.context import ArtemisContext
 from artemis.data_engine.trace import CURRENT_TRACE_ID, DataEngineCallbackHandler
 from artemis.llm.google import is_google_chat_model, is_google_provider
+from artemis.llm.key_rotator import google_key_pool, mask_key
 from artemis.llm.reliability import (
     CircuitBreaker,
     FailureCategory,
@@ -438,6 +439,36 @@ async def _run_with_recovery[T](
                         )
                         raise LLMPermanentError(str(e), failure=failure, cause=e) from e
                     last_error, last_failure = e, failure
+
+                    # Multi-API Key Instant Failover for Rate Limits (429 / RESOURCE_EXHAUSTED)
+                    if failure.category is FailureCategory.RATE_LIMIT:
+                        is_google = (
+                            (provider in ("google", "gemini"))
+                            or (endpoint_key and "google" in endpoint_key.lower())
+                            or (endpoint_key and "gemini" in endpoint_key.lower())
+                        )
+                        if is_google and google_key_pool.has_multiple_keys():
+                            current_k = google_key_pool.get_active_key()
+                            new_k, switched = google_key_pool.rotate_key(current_k, cooldown_seconds=1800.0)
+                            if switched and new_k:
+                                llm_logger.warning(
+                                    f"🔄 [KeyPool] Rate limit/quota hit on key {mask_key(current_k)}. "
+                                    f"Instantly rotating to backup key {mask_key(new_k)} and retrying!"
+                                )
+                                if hasattr(call_once, "func"):
+                                    self_obj = getattr(call_once.func, "__self__", None)
+                                    if self_obj and hasattr(self_obj, "base_model"):
+                                        google_key_pool.hot_swap_model_client(self_obj.base_model, new_k)
+                                    elif self_obj and hasattr(self_obj, "client"):
+                                        google_key_pool.hot_swap_model_client(self_obj, new_k)
+
+                                os.environ["GEMINI_API_KEY"] = new_k
+                                os.environ["GOOGLE_API_KEY"] = new_k
+                                if endpoint_key:
+                                    _ENDPOINT_BREAKER.record_success(endpoint_key)
+                                await asyncio.sleep(0.5)
+                                continue
+
                     attempt = attempts.get(failure.category, 0) + 1
                     attempts[failure.category] = attempt
                     policy = retry_policy_for(failure.category)

@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: SecretStr | None = None
     GOOGLE_API_KEY: SecretStr | None = None
     GEMINI_API_KEY: SecretStr | None = None
+    GEMINI_API_KEY_2: SecretStr | None = None
+    GEMINI_API_KEYS: SecretStr | None = None
     GCP_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None
     XAI_API_KEY: SecretStr | None = None
@@ -178,6 +180,8 @@ class Settings(BaseSettings):
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "GEMINI_API_KEY",
+            "GEMINI_API_KEY_2",
+            "GEMINI_API_KEYS",
             "GCP_API_KEY",
             "ANTHROPIC_API_KEY",
             "XAI_API_KEY",
